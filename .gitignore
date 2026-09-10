@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Virtual environments
+.venv/
+
+# macOS
+.DS_Store
+
+# Generated models and benchmark data
+artifacts/*
+results/*
+!artifacts/.gitkeep
+!results/.gitkeep
