@@ -4,7 +4,7 @@ The Script runs the same pretrained MobileNetV3 Small model with the
 same input on CPU and Apple MPS, then verifies that both backends:
 
 1. Produce outputs with the expected shape.
-2. Produce finite values with NaN or infinity.
+2. Produce finite values without NaN or infinity.
 3. Select the same Top-1 class.
 4. Produce numerically close logits within the configured tolerances.
 
@@ -37,7 +37,7 @@ def main() -> None:
     #
     # The random input is sufficient for backend consistency validation,
     # but it must not be used to evaluate classification accuracy.
-    inputs = torch.randn(1, 3, 244, 244)
+    inputs = torch.randn(1, 3, 224, 224)
 
     cpu_outputs = run_reference_inference(
         model = model,

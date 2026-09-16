@@ -11,7 +11,8 @@ __pycache__/
 .DS_Store
 
 # Generated models and benchmark data
-artifacts/*
+artifacts/models/*.onnx
+artifacts/models/*.onnx.data
 results/*
 !artifacts/.gitkeep
 !results/.gitkeep
