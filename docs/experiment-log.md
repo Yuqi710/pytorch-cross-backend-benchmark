@@ -298,3 +298,186 @@ These properties require runtime execution and benchmarking.
   number of PyTorch modules.
 - The absence of a node type alone does not prove a particular backend fusion.
 - No latency or throughput measurement is reported.
+
+---
+
+## Day 3: ONNX Runtime CPU Execution and Numerical Consistency
+
+### Objective
+
+Execute the Day 2 ONNX model through ONNX Runtime's CPU Execution Provider
+and compare its output with PyTorch CPU using the same model instance,
+weights, and input tensor.
+
+Performance measurement is intentionally excluded from this milestone.
+
+### Runtime Environment
+
+| Component | Version |
+|---|---|
+| Python | 3.11.16 |
+| PyTorch | 2.14.0 |
+| ONNX Runtime | 1.30.0 |
+| Architecture | Apple Silicon ARM64 |
+| Model | MobileNetV3 Small |
+| Weights | `MobileNet_V3_Small_Weights.DEFAULT` |
+| Precision | FP32 |
+| ONNX opset | 18 |
+
+### Execution Provider Isolation
+
+The installed ONNX Runtime package reported:
+
+```text
+CoreMLExecutionProvider
+AzureExecutionProvider
+CPUExecutionProvider
+```
+
+The Day 3 Session was explicitly created with:
+
+```python
+providers=["CPUExecutionProvider"]
+```
+
+The active provider list was:
+
+```text
+CPUExecutionProvider
+```
+
+Available providers describe the capabilities compiled into the installed
+runtime. Active providers describe the providers assigned to a particular
+Session. The presence of CoreML or Azure in the available list does not mean
+that they executed any nodes in this experiment.
+
+### Session Configuration
+
+The Session uses:
+
+- `CPUExecutionProvider`
+- `ORT_ENABLE_ALL` graph optimization
+- Sequential execution mode
+- Default ORT intra-op thread configuration
+- Default ORT inter-op thread configuration
+
+Thread-count and execution-mode experiments are deferred until the benchmark
+harness can isolate them as controlled variables.
+
+### Input and Output Contract
+
+| Property | Value |
+|---|---|
+| Input name | `input` |
+| Input shape | `[1, 3, 224, 224]` |
+| Input type | `tensor(float)` |
+| Output name | `logits` |
+| Output shape | `[1, 1000]` |
+| Output type | `tensor(float)` |
+
+### Correctness Method
+
+The script performs the following sequence:
+
+1. Construct one PyTorch model instance.
+2. Generate one deterministic input tensor.
+3. Run PyTorch CPU inference.
+4. Export that same model instance to ONNX.
+5. Create an ORT Session restricted to the CPU EP.
+6. Run ORT inference with the same input values.
+7. Validate shape and finite values.
+8. Compare Top-1 indices.
+9. Calculate maximum and mean absolute error.
+10. Apply element-wise relative and absolute tolerances.
+
+Using the same in-memory model instance prevents model reconstruction or
+random initialization from becoming a hidden comparison variable.
+
+### Numerical-Consistency Result
+
+| Metric | Result |
+|---|---:|
+| Reference shape | `[1, 1000]` |
+| Candidate shape | `[1, 1000]` |
+| PyTorch Top-1 index | `574` |
+| ORT Top-1 index | `574` |
+| Top-1 agreement | Passed |
+| Maximum absolute error | `1.1920928955078125e-05` |
+| Mean absolute error | `2.6078857899847208e-06` |
+| Relative tolerance | `1e-4` |
+| Absolute tolerance | `1e-4` |
+| Element-wise closeness | Passed |
+
+The observed maximum absolute error is approximately 11.9% of the configured
+absolute tolerance. The output difference is therefore comfortably within
+the selected FP32 correctness threshold for this input.
+
+The Top-1 index differs from the Day 1 result because Day 1 and Day 3 use
+different synthetic inputs. Cross-backend agreement must be evaluated within
+the same experiment and input, not by comparing class indices across unrelated
+inputs.
+
+### Test Results
+
+The complete test suite produced:
+
+```text
+16 passed in 3.38s
+```
+
+The six Day 3 test items cover:
+
+- Error and Top-1 metric calculation
+- Shape-mismatch rejection
+- Non-finite reference rejection
+- Non-finite candidate rejection
+- CPU-only ORT Session creation
+- Real PyTorch/ORT numerical consistency
+
+### Artifact
+
+The machine-readable result is stored at:
+
+```text
+artifacts/results/day3_ort_correctness.json
+```
+
+The result records:
+
+- Model and weight identity
+- Model and input seeds
+- ONNX opset
+- PyTorch and ORT versions
+- Available and active providers
+- Session input/output contract
+- Error metrics
+- Tolerances
+- Top-1 and allclose results
+
+### Validation Boundary
+
+This experiment establishes that, for the tested model and input:
+
+- ONNX Runtime can load the exported graph.
+- All graph nodes can execute through the CPU EP.
+- ORT produces the expected output shape and type.
+- Outputs contain no NaN or infinity.
+- PyTorch and ORT agree on Top-1.
+- Tensor differences remain within the selected FP32 tolerances.
+
+It does not establish that:
+
+- ONNX Runtime is faster than PyTorch.
+- ORT Session initialization is inexpensive.
+- CoreML EP can execute the graph.
+- All possible model inputs produce equivalent outputs.
+- The selected tolerance is appropriate for every model or precision.
+- Default ORT threading is optimal for this hardware.
+
+### Day 3 Limitations
+
+- Only one model, input shape, batch size, precision, and sample are tested.
+- Only CPU Execution Provider execution is validated.
+- Graph initialization and optimization time are not measured separately.
+- NumPy conversion and output-copy costs are not benchmarked.
+- No warm-up or latency distribution is collected.

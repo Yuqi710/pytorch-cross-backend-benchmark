@@ -190,3 +190,95 @@ Day2 已验证：
  - ONNX是否比PyTorch更快
  - 动态Shape、FP16或INT8
  - 冷启动、预热后延迟、吞吐量和尾延迟
+
+---
+
+## Day 3: ONNX Runtime CPU 执行与数值一致性
+
+### Execution Provider
+ONNX Runtime 通过 Execution Provider 将计算图节点映射到具体执行后端。
+本机可用的Provider包括：
+
+```text
+CoreMLExecutionProvider
+AzureExecutionProvider
+CPUExecutionProvider
+```
+
+可用Provider不等于实际参与执行的Provider。本次显示指定：
+
+```python
+providers=["CPUExecutionProvider"]
+```
+
+因此只有 CPU EP 参与执行，避免实验环境变化后静默切换后端。
+
+### InferenceSession 生命周期
+创建`InferenceSession`可能包含模型解析、图优化、节点分配、Kernel初始化和
+线程池准备。因此，正式benchmark应区分以下阶段：
+
+```text
+Session初始化
+预热
+稳定推理
+端到端请求
+```
+
+Day3仅验证模型能否正确执行以及输出是否一致，不进行性能计时。
+
+### 数据边界
+当前数据链路是：
+
+```text
+PyTorch CPU Tensor
+    ↓ detach / contiguous / NumPy
+NumPy input
+    ↓ session.run
+ONNX Runtime CPU
+    ↓ NumPy output
+NumPy array
+    ↓ copy / torch.from_numpy
+PyTorch CPU Tensor
+```
+
+Tensor连续化、设备转换或显式`copy()`都可能产生数据复制。
+后续性能测试必须分别测量：
+- 仅包含`session.run()`的核心推理延迟
+- 包含输入准备和输出转换的端到端延迟
+
+### 数值一致性
+PyTorch推理和ONNX导出复用同一个模型实例，并使用相同权重和输入，从而将输出差异
+限定在算子实现、计算顺序和浮点舍入范围内。
+
+逐元素比较采用：
+```text
+|actual - expected| <= atol + rtol × |expected|
+```
+
+正确性判断需要同时覆盖：
+ - 输出Shape
+ - 输出dtype
+ - NaN/Inf
+ - Top-1
+ - 最大绝对误差
+ - 平均绝对误差
+ - 逐元素容差
+
+不能仅依赖Top-1判断完整输出是否一致，因为非最大类别的logits仍可能存在明显误差。
+
+### ORT 图优化
+当前Session使用`ORT_ENABLE_ALL`。ORT可能在Session初始化期间执行：
+ - 常量折叠
+ - 冗余节点消除
+ - Conv/Add等算子融合
+ - CPU EP特定融合
+ - layout优化
+
+因此，Day 2 统计的序列化ONNX图不一定等于ONNX Runtime最终执行的内部图。
+只要优化保持算子语义，输出应继续满足数值容差。
+后续可以导出ORT优化模型或启用profiling，分析优化后的图结构和实际执行节点。
+
+### 当前限制
+ - 尚未分析每个节点的Provider分配
+ - 尚未区分Session初始化、数据转换和核心推理耗时
+ - 尚未研究线程数、执行模式和图优化等级

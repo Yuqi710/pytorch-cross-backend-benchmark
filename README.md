@@ -7,8 +7,8 @@ The project currently focuses on Apple Silicon and separates model loading,
 device transfer, inference execution, synchronization, result validation,
 and performance measurement into explicit lifecycle stages.
 
-> Current milestone: Day 2 - PyTorch CPU/MPS correctness baseline and
-> PyTorch-to-ONNX export pipline.
+> Current milestone: Day 3 - ONNX Runtime CPU execution and
+> PyTorch/ORT numerical-consistency validation.
 
 # Project Goals
 
@@ -29,8 +29,8 @@ This project aims to build a reproducible workflow for:
 | PyTorch CPU | Implemented | Planned | Available |
 | PyTorch MPS | Implemented | Planned | Available |
 | ONNX export | Structural validation | Not applicable | Available |
-| ONNX Runtime CPU | Planned | Planned | Day 3 |
-| Additional deployment backends | Planned | Planned | Future work |
+| ONNX Runtime CPU | Implemented | Planned | Available |
+| ONNX Runtime CoreML | Not Started | Not Started | Future work |
 
 Performance numbers are intentionally not reported yet. A formal benchmark
 requires warm-up, synchronizaiotn, repeated sampling, and statistical
@@ -60,6 +60,18 @@ aggregation, whihc will be implemented in later milestones.
  - ONNX shape inference
  - Graph input, output, initializer, node, and operator statistics
  - Machine-readable JSON result generation
+
+### Day 3 - ONNX Runtime CPU Correctness
+ - Explicit `CPUExecutionProvider` selection
+ - ORT Session creation with graph optimization enabled
+ - PyTorch Tensor to NumPy to ORT input path
+ - ORT output conversion back to PyTorch Tensor
+ - Shared-model PyTorch/ORT comparison
+ - Shape and finite-value validation
+ - Top-1 agreement checking
+ - Maximum and mean absolute-error agreement
+ - Configurable `rtol` and `atol`
+ - Machine-readable correctness result generation
 
 ## Current Reproducible Results
 
@@ -116,6 +128,28 @@ The exported graph contains the following operator distribution:
 The complete machine-readable result is stored in
 [`artifacts/results/day2_onnx_graph_summary.json`](artifacts/results/day2_onnx_graph_summary.json).
 
+### PyTorch CPU / ONNX Runtime CPU Consistency
+
+The same model instance, weights, and input tensor were used to generate the
+PyTorch reference output and exported ONNX model.
+
+| Metric | Result |
+|---|---:|
+| Active Execution Provider | `CPUExecutionProvider` |
+| Output shape | `[1, 1000]` |
+| PyTorch Top-1 index | `574` |
+| ONNX Runtime Top-1 index | `574` |
+| Maximum absolute error | `1.1920929e-05` |
+| Mean absolute error | `2.6078858e-06` |
+| Relative tolerance | `1e-4` |
+| Absolute tolerance | `1e-4` |
+| Element-wise closeness | Passed |
+
+The complete result is stored in
+[`artifacts/results/day3_ort_correctness.json`](artifacts/results/day3_ort_correctness.json).
+
+This is a correctness result, not a latency or throughput result.
+
 ## Environment
 
 The current reference environment is:
@@ -129,6 +163,7 @@ The current reference environment is:
 | ONNX | 1.22.0 |
 | ONNX Script | 0.7.2 |
 | Test framework | pytest 9.1.1 |
+| ONNX Runtime | 1.30.0 |
 
 MPS execution requires a compatible Apple Silicon Mac and a PyTorch build
 with MPS support. The CPU path can also be used on other supported platforms.
@@ -181,6 +216,12 @@ The generated ONNX binary is excluded from Git because it can be reproduced
 from the source code. The compact JSON summary is committed as experiment
 evidence.
 
+Run the PyTorch CPU / ONNX Runtime CPU correctness validation:
+
+```bash
+python scripts/day3_ort_correctness.py
+```
+
 ## Repository Structure
 
 ```text
@@ -192,19 +233,24 @@ evidence.
 │   ├── experiment-log.md               # Executed experiments and observations
 │   └── learning-notes.md               # Concepts and engineering notes
 ├── scripts/
-│   ├── day1_smoke.py                    # CPU/MPS correctness smoke test
-│   └── day2_export.py                   # ONNX export and graph inspection
+│   ├── day1_smoke.py                    # PyTorch CPU/MPS correctness smoke test
+│   ├── day2_export.py                   # ONNX export and graph inspection
+│   └── day3_ort_correctness.py          # PyTorch/ORT CPU numerical-consistency experiment
 ├── src/
 │   └── inference_bench/
-│       ├── device.py                    # Device capability and resolution logic
+│       ├── device.py                    # Device capability detection and resolution
 │       ├── inference.py                 # Reference PyTorch inference
 │       ├── models.py                    # Model construction
-│       └── onnx_export.py               # ONNX export and graph inspection
+│       ├── onnx_export.py               # ONNX export and graph inspection
+│       ├── ort_backend.py               # ORT CPU session creation and inference adapter
+│       └── validation.py                # Backend-independent output validation and error metrics
 ├── tests/
 │   ├── test_device.py
 │   ├── test_inference.py
 │   ├── test_models.py
-│   └── test_onnx_export.py
+│   ├── test_onnx_export.py
+│   ├── test_ort_backend.py
+│   └── test_validation.py
 └── pyproject.toml
 ```
 
@@ -233,8 +279,8 @@ The project follows several rules to avoid misleading benchmark conclusions:
 - [x] CPU/MPS numerical-consistency smoke test
 - [x] Dynamo-based fixed-shape ONNX export
 - [x] ONNX graph validation and operator statistics
-- [ ] ONNX Runtime CPU inference
-- [ ] PyTorch/ONNX Runtime numerical-consistency validation
+- [x] ONNX Runtime CPU inference
+- [x] PyTorch/ONNX Runtime numerical-consistency validation
 - [ ] Unified backend lifecycle interface
 - [ ] Warm-up and repeated latency sampling
 - [ ] Median, percentile, throughput, and variability reporting
@@ -248,6 +294,9 @@ The project follows several rules to avoid misleading benchmark conclusions:
 - Only MobileNetV3 Small is covered.
 - The current exported model uses a fixed batch size of one.
 - Correctness results use a single synthetic input.
-- ONNX Runtime execution has not yet been implemented.
-- Formal latency and throughput measurements have not yet been collected.
+- Only ONNX Runtime CPU execution has been validated.
+- CoreML Execution Provider execution has not been evaluated.
+- Formal latency and throughput measurements have not been collected.
+- ORT initialization, graph optimization, and inference time have not yet
+  been separated experimentally.
 - Model accuracy on an evaluation dataset has not been measured.
