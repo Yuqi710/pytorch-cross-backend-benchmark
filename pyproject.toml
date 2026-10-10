@@ -13,6 +13,7 @@ dependencies = [
     "onnx==1.22.0",
     "onnxscript==0.7.2",
     "onnxruntime==1.30.0",
+    "numpy==2.4.6",
 ]
 
 [project.optional-dependencies]

@@ -481,3 +481,132 @@ It does not establish that:
 - Graph initialization and optimization time are not measured separately.
 - NumPy conversion and output-copy costs are not benchmarked.
 - No warm-up or latency distribution is collected.
+
+---
+
+## Day 4: Unified Backend Interface
+
+### Objective
+
+Expose PyTorch CPU, PyTorch MPS, and ONNX Runtime CPU through a common
+inference lifecycle while preserving each backend's native execution data.
+
+Separate backend initialization, input preparation, execution,
+synchronization, and output conversion to support subsequent benchmarking.
+
+### Interface
+
+| Stage | Interface | Responsibility |
+|---|---|---|
+| Initialization | Constructor | Create an independent model or ORT Session |
+| Input preparation | `prepare_input()` | Validate and prepare an owned input snapshot |
+| Execution | `run()` | Execute using prepared input and return native output |
+| Synchronization | `synchronize()` | Wait for outstanding backend work |
+| Output conversion | `to_cpu()` | Return a CPU Tensor for validation |
+| Metadata | `metadata()` | Report backend identity and configuration |
+
+`run_once()` invokes:
+
+```text
+prepare_input → synchronize → run → synchronize → to_cpu
+```
+
+### Ownership and Native Data
+
+Each PyTorch backend owns an independent copy of the source model.
+Backend initialization does not mutate the caller's model mode or device.
+
+Prepared inputs are independent snapshots. Subsequent modification of the
+caller's input does not affect the prepared workload.
+
+Native execution types are:
+
+| Backend | Prepared input | Native output |
+|---|---|---|
+| PyTorch CPU | CPU Tensor | CPU Tensor |
+| PyTorch MPS | MPS Tensor | MPS Tensor |
+| ORT CPU | NumPy array | NumPy array |
+
+### Experiment Configuration
+
+- Architecture: ARM64
+- macOS: 26.5.1
+- Python: 3.11.16
+- PyTorch: 2.14.0
+- ONNX Runtime: 1.30.0
+- Model: MobileNetV3 Small
+- Weights: `MobileNet_V3_Small_Weights.DEFAULT`
+- Precision: FP32
+- Input shape: `[1, 3, 224, 224]`
+- Model seed: 2026
+- Input seed: 2027
+- ONNX opset: 18
+- Reference: direct PyTorch CPU inference
+- Tolerances: `rtol=1e-4`, `atol=1e-4`
+
+The reference was computed directly from the source model, outside the
+new backend adapters.
+
+### Observed Results
+
+| Backend | Top-1 | Maximum absolute error | Mean absolute error | Allclose |
+|---|---:|---:|---:|---|
+| PyTorch CPU | 574 | 0 | 0 | Passed |
+| ORT CPU | 574 | 1.1920928955078125e-05 | 2.6078857899847208e-06 | Passed |
+| PyTorch MPS | 574 | 8.106231689453125e-06 | 1.3067797226540279e-06 | Passed |
+
+All outputs had shape `[1, 1000]`. Three backends executed and none were
+skipped.
+
+The ORT errors matched the recorded Day 3 result for the same model and
+input configuration.
+
+### Runtime Configuration Observations
+
+- PyTorch reported 6 intra-op threads and 18 inter-op threads.
+- ORT reported 0 for both thread settings, indicating runtime defaults.
+- ORT registered only `CPUExecutionProvider`.
+- ORT used `ORT_ENABLE_ALL` and `ORT_SEQUENTIAL`.
+- `PYTORCH_ENABLE_MPS_FALLBACK` was unset when metadata was collected.
+
+Thread settings are configuration values, not measurements of active
+worker threads. The two CPU runtimes have not been configured for an
+equal-thread performance comparison.
+
+MPS fallback environment metadata is not a per-operator execution trace.
+
+### Test Evidence
+
+The submitted test run reported:
+
+```text
+29 passed in 4.64s
+```
+
+The 13 new test items cover:
+
+- Native execution, input ownership, and source-model preservation:
+  3 backend cases
+- Invalid dtype and shape rejection: 6 cases
+- Shared `run_once()` execution: 3 backend cases
+- Lifecycle call order: 1 case
+
+All MPS cases executed rather than being skipped.
+
+### Artifacts
+
+- Generated model:
+  `artifacts/models/day4_mobilenet_v3_small_fp32.onnx`
+- Committed result:
+  `artifacts/results/day4_backend_correctness.json`
+- Result schema version: 1
+
+### Limitations
+
+- The real-model smoke test covers one synthetic input at batch size one.
+- Only FP32 and a single-input, single-output model are covered.
+- Protocol annotations do not perform runtime contract validation.
+- The lifecycle-order test checks orchestration, not GPU timing accuracy.
+- No per-operator MPS profiling was collected.
+- No latency, throughput, or speedup was measured.
+- Test-suite duration is not inference latency.

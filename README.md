@@ -7,8 +7,8 @@ The project currently focuses on Apple Silicon and separates model loading,
 device transfer, inference execution, synchronization, result validation,
 and performance measurement into explicit lifecycle stages.
 
-> Current milestone: Day 3 - ONNX Runtime CPU execution and
-> PyTorch/ORT numerical-consistency validation.
+> Current milestone: Day 4 - Unified inference lifecycle for PyTorch CPU,
+> PyTorch MPS, and ONNX Runtime CPU, with correctness regression tests.
 
 # Project Goals
 
@@ -62,6 +62,7 @@ aggregation, whihc will be implemented in later milestones.
  - Machine-readable JSON result generation
 
 ### Day 3 - ONNX Runtime CPU Correctness
+
  - Explicit `CPUExecutionProvider` selection
  - ORT Session creation with graph optimization enabled
  - PyTorch Tensor to NumPy to ORT input path
@@ -72,6 +73,22 @@ aggregation, whihc will be implemented in later milestones.
  - Maximum and mean absolute-error agreement
  - Configurable `rtol` and `atol`
  - Machine-readable correctness result generation
+
+### Day 4 — Unified Backend Interface
+
+- Shared lifecycle: input preparation, execution, synchronization, and
+  CPU output conversion
+- Independent PyTorch model copies and prepared input snapshots
+- Native Tensor/NumPy outputs preserved during execution
+- Common `run_once()` entry point for three backends
+- Backend configuration metadata and JSON experiment results
+- 29 passing tests in the recorded Day 4 run
+
+All three backends matched a direct PyTorch CPU reference within
+`rtol=1e-4` and `atol=1e-4` for the tested FP32 input.
+
+See [the Day 4 result](artifacts/results/day4_backend_correctness.json)
+and [the experiment log](docs/experiment-log.md).
 
 ## Current Reproducible Results
 
@@ -222,6 +239,12 @@ Run the PyTorch CPU / ONNX Runtime CPU correctness validation:
 python scripts/day3_ort_correctness.py
 ```
 
+Run correctness validation through the unified backend interface:
+
+```bash
+python scripts/day4_backends_smoke.py
+```
+
 ## Repository Structure
 
 ```text
@@ -235,9 +258,11 @@ python scripts/day3_ort_correctness.py
 ├── scripts/
 │   ├── day1_smoke.py                    # PyTorch CPU/MPS correctness smoke test
 │   ├── day2_export.py                   # ONNX export and graph inspection
-│   └── day3_ort_correctness.py          # PyTorch/ORT CPU numerical-consistency experiment
+│   ├── day3_ort_correctness.py          # PyTorch/ORT CPU numerical-consistency experiment
+│   └── day4_backends_smoke.py           # Unified three-backend correctness smoke test
 ├── src/
 │   └── inference_bench/
+│       ├── backends.py                  # Backend protocol, adapters, and inference lifecycle
 │       ├── device.py                    # Device capability detection and resolution
 │       ├── inference.py                 # Reference PyTorch inference
 │       ├── models.py                    # Model construction
@@ -245,6 +270,7 @@ python scripts/day3_ort_correctness.py
 │       ├── ort_backend.py               # ORT CPU session creation and inference adapter
 │       └── validation.py                # Backend-independent output validation and error metrics
 ├── tests/
+│   ├── test_backends.py
 │   ├── test_device.py
 │   ├── test_inference.py
 │   ├── test_models.py
@@ -281,7 +307,7 @@ The project follows several rules to avoid misleading benchmark conclusions:
 - [x] ONNX graph validation and operator statistics
 - [x] ONNX Runtime CPU inference
 - [x] PyTorch/ONNX Runtime numerical-consistency validation
-- [ ] Unified backend lifecycle interface
+- [x] Unified backend lifecycle interface
 - [ ] Warm-up and repeated latency sampling
 - [ ] Median, percentile, throughput, and variability reporting
 - [ ] ResNet50 benchmark coverage
@@ -293,10 +319,15 @@ The project follows several rules to avoid misleading benchmark conclusions:
 
 - Only MobileNetV3 Small is covered.
 - The current exported model uses a fixed batch size of one.
-- Correctness results use a single synthetic input.
+- Each recorded correctness smoke test uses one synthetic input.
 - Only ONNX Runtime CPU execution has been validated.
 - CoreML Execution Provider execution has not been evaluated.
 - Formal latency and throughput measurements have not been collected.
 - ORT initialization, graph optimization, and inference time have not yet
   been separated experimentally.
 - Model accuracy on an evaluation dataset has not been measured.
+- Backend lifecycle stages are separated in code, but initialization,
+  input preparation, execution, and output conversion have not yet been
+  measured separately.
+- Thread settings are recorded, but controlled threading experiments
+  across CPU backends have not been conducted.
