@@ -7,8 +7,8 @@ The project currently focuses on Apple Silicon and separates model loading,
 device transfer, inference execution, synchronization, result validation,
 and performance measurement into explicit lifecycle stages.
 
-> Current milestone: Day 4 - Unified inference lifecycle for PyTorch CPU,
-> PyTorch MPS, and ONNX Runtime CPU, with correctness regression tests.
+> Current milestone: Day 5 - Correctness-gated, Synchronized latency
+> benchmarking for PyTorch CPU, PyTorch MPS, and ONNX Runtime CPU.
 
 # Project Goals
 
@@ -19,22 +19,22 @@ This project aims to build a reproducible workflow for:
  - Separating initialization, warm-up, execution, synchronization, and transfer
  - Recording environment and model metadata with benchmark results
  - Analyzing exported graphs and backend operator behavior
- - Investing optimization opportunities such as graph optimization,
-   precision conversion, quantization, and executor-provider selection
+ - Investigating optimization opportunities such as graph optimization,
+   precision conversion, quantization, profiling, and executor-provider selection
 
 # Current Backend Status
 
 | Backend | Correctness | Performance benchmark | Status |
 |---|---:|---:|---|
-| PyTorch CPU | Implemented | Planned | Available |
-| PyTorch MPS | Implemented | Planned | Available |
+| PyTorch CPU | Implemented | Implemented | Baseline recorded |
+| PyTorch MPS | Implemented | Implemented | Available; cross-process latency is state-sensitive |
 | ONNX export | Structural validation | Not applicable | Available |
-| ONNX Runtime CPU | Implemented | Planned | Available |
+| ONNX Runtime CPU | Implemented | Implemented | Baseline recorded |
 | ONNX Runtime CoreML | Not Started | Not Started | Future work |
 
-Performance numbers are intentionally not reported yet. A formal benchmark
-requires warm-up, synchronizaiotn, repeated sampling, and statistical
-aggregation, whihc will be implemented in later milestones.
+Day 5 reports a prepared-input, concurrency-one latency baseline. The
+results do not represent end-to-end application latency or measured
+concurrent throughput.
 
 # Implemented Features
 
@@ -76,19 +76,32 @@ aggregation, whihc will be implemented in later milestones.
 
 ### Day 4 — Unified Backend Interface
 
-- Shared lifecycle: input preparation, execution, synchronization, and
-  CPU output conversion
-- Independent PyTorch model copies and prepared input snapshots
-- Native Tensor/NumPy outputs preserved during execution
-- Common `run_once()` entry point for three backends
-- Backend configuration metadata and JSON experiment results
-- 29 passing tests in the recorded Day 4 run
+ - Shared lifecycle: input preparation, execution, synchronization, and
+   CPU output conversion
+ - Independent PyTorch model copies and prepared input snapshots
+ - Native Tensor/NumPy outputs preserved during execution
+ - Common `run_once()` entry point for three backends
+ - Backend configuration metadata and JSON experiment results
 
 All three backends matched a direct PyTorch CPU reference within
 `rtol=1e-4` and `atol=1e-4` for the tested FP32 input.
 
 See [the Day 4 result](artifacts/results/day4_backend_correctness.json)
 and [the experiment log](docs/experiment-log.md).
+
+### Day 5 — Reproducible Latency Benchmark
+
+ - Shared benchmark harness for PyTorch CPU, PyTorch MPS, and ONNX Runtime CPU
+ - Correctness validation before and after latency sampling
+ - Explicit warm-up outside the measured interval
+ - Per-sample synchronization for asynchronous MPS execution
+ - Raw integer-nanosecond sample preservation
+ - Mean, P50, P90, P99, standard deviation, and coefficient-of-variation
+   statistics
+ - Derived serial service-rate reporting for batch-size-one inference
+ - Three independent processes with rotated backend execution order
+ - Runtime, hardware, thread-policy, source, model, and input metadata
+ - Collision-safe machine-readable JSON result persistence
 
 ## Current Reproducible Results
 
@@ -167,20 +180,64 @@ The complete result is stored in
 
 This is a correctness result, not a latency or throughput result.
 
+### Synchronized Cross-Backend Latency Baseline
+
+The benchmark used pretrained MobileNetV3 Small with a fixed synthetic FP32
+input of shape `[1, 3, 224, 224]`, batch size 1, and request concurrency 1.
+
+Each formal run used 50 warm-up calls followed by 300 measured calls. Three
+independent processes were executed for each backend with rotated backend
+order. The measured interval contains `backend.run()` and backend
+synchronization. Model loading, ONNX export, session creation, input
+preparation, output conversion, correctness validation, and result
+serialization are excluded.
+
+The formal campaign ran on AC power with the battery charged, Low Power Mode
+disabled, an idle desktop, and `PYTORCH_ENABLE_MPS_FALLBACK=0`.
+
+| Backend | Reported mean latency | P50 | P90 | P99 | Derived serial service rate |
+|---|---:|---:|---:|---:|---:|
+| PyTorch CPU | 48.769 ms | 48.690 ms | 49.374 ms | 51.664 ms | 20.50 images/s |
+| ONNX Runtime CPU | 1.045 ms | 1.037 ms | 1.159 ms | 1.197 ms | 957.26 images/s |
+| PyTorch MPS | 2.74–3.51 ms | State-dependent | State-dependent | State-dependent | 285–365 images/s |
+
+CPU values are the median of the three per-process statistics. Under the
+recorded runtime-default thread policies, ONNX Runtime CPU reduced mean
+latency by approximately **46.68x** relative to PyTorch CPU for this model
+and input. This is an observed backend/runtime result, not an equal-thread
+kernel comparison.
+
+MPS produced different stable latency states across independent processes.
+Formal round means were `3.465`, `2.741`, and `2.758` ms. Two additional
+runs with 1,000 warm-up iterations produced `3.506` and `3.090` ms.
+Therefore, the project reports the observed controlled-AC envelope rather
+than selecting the fastest individual run.
+
+`Serial service rate` is calculated from mean batch-size-one latency. It is
+not measured concurrent throughput.
+
+Formal results are stored in
+[`artifacts/results/day5/formal/ac_v2/`](artifacts/results/day5/formal/ac_v2/).
+Selected MPS diagnostics are stored in
+[`artifacts/results/day5/diagnostics/mps_state/`](artifacts/results/day5/diagnostics/mps_state/).
+See the [experiment log](docs/experiment-log.md) for the complete analysis.
+
 ## Environment
 
 The current reference environment is:
 
 | Component | Version |
 |---|---|
+| Hardware | Apple M5 Pro, 48 GB unified memory |
 | Architecture | Apple Silicon ARM64 |
+| Operating system | macOS 26.5.1 |
 | Python | 3.11.16 |
 | PyTorch | 2.14.0 |
 | torchvision | 0.29.0 |
 | ONNX | 1.22.0 |
 | ONNX Script | 0.7.2 |
-| Test framework | pytest 9.1.1 |
 | ONNX Runtime | 1.30.0 |
+| Test framework | pytest 9.1.1 |
 
 MPS execution requires a compatible Apple Silicon Mac and a PyTorch build
 with MPS support. The CPU path can also be used on other supported platforms.
@@ -245,6 +302,33 @@ Run correctness validation through the unified backend interface:
 python scripts/day4_backends_smoke.py
 ```
 
+Run one correctness-gated benchmark process:
+
+```bash
+python scripts/day5_benchmark.py \
+  --backend pytorch_cpu \
+  --warmup 50 \
+  --iterations 300 \
+  --round 1
+```
+
+Supported backends are pytorch_cpu, pytorch_mps, and ort_cpu.
+Run the complete three-round baseline campaign:
+
+```bash
+export PYTORCH_ENABLE_MPS_FALLBACK=0
+export DAY5_NOTES="AC power; battery charged; powermode=0; idle desktop"
+
+bash scripts/day5_run_baseline.sh
+
+unset DAY5_NOTES
+unset PYTORCH_ENABLE_MPS_FALLBACK
+```
+
+Each process writes a machine-readable JSON record containing raw latency
+samples, summary statistics, correctness results, runtime configuration,
+environment metadata, and reproducibility fingerprints.
+
 ## Repository Structure
 
 ```text
@@ -259,10 +343,13 @@ python scripts/day4_backends_smoke.py
 │   ├── day1_smoke.py                    # PyTorch CPU/MPS correctness smoke test
 │   ├── day2_export.py                   # ONNX export and graph inspection
 │   ├── day3_ort_correctness.py          # PyTorch/ORT CPU numerical-consistency experiment
-│   └── day4_backends_smoke.py           # Unified three-backend correctness smoke test
+│   ├── day4_backends_smoke.py           # Unified three-backend correctness smoke test
+│   ├── day5_benchmark.py                # Single-process benchmark entry
+│   └── day5_run_baseline.sh             # Rotated three-round compaign
 ├── src/
 │   └── inference_bench/
 │       ├── backends.py                  # Backend protocol, adapters, and inference lifecycle
+│       ├── benchmark.py                 # Sampling, statistics, and persistence
 │       ├── device.py                    # Device capability detection and resolution
 │       ├── inference.py                 # Reference PyTorch inference
 │       ├── models.py                    # Model construction
@@ -271,6 +358,8 @@ python scripts/day4_backends_smoke.py
 │       └── validation.py                # Backend-independent output validation and error metrics
 ├── tests/
 │   ├── test_backends.py
+│   ├── test_benchmark_integration.py
+│   ├── test_benchmark.py
 │   ├── test_device.py
 │   ├── test_inference.py
 │   ├── test_models.py
@@ -301,33 +390,33 @@ The project follows several rules to avoid misleading benchmark conclusions:
 
 ## Roadmap
 
-- [x] PyTorch CPU/MPS capability detection
-- [x] CPU/MPS numerical-consistency smoke test
-- [x] Dynamo-based fixed-shape ONNX export
-- [x] ONNX graph validation and operator statistics
-- [x] ONNX Runtime CPU inference
-- [x] PyTorch/ONNX Runtime numerical-consistency validation
-- [x] Unified backend lifecycle interface
-- [ ] Warm-up and repeated latency sampling
-- [ ] Median, percentile, throughput, and variability reporting
-- [ ] ResNet50 benchmark coverage
-- [ ] Dynamic batch-size experiments
+- [x] PyTorch CPU/MPS baseline and numerical validation
+- [x] ONNX export and graph validation
+- [x] ONNX Runtime CPU integration and cross-backend correctness validation
+- [x] Unified backend inference lifecycle
+- [x] Reproducible synchronized cross-backend latency benchmark
+- [ ] Benchmark methodology refinement and controlled-variable experiments
 - [ ] Graph optimization and operator-level profiling
-- [ ] FP16 and INT8 optimization experiments
+- [ ] Model and workload matrix expansion
+- [ ] Precision, quantization, and deployment-backend optimization
+- [ ] Concurrent serving and end-to-end pipeline benchmarking
 
 ## Current Limitations
 
-- Only MobileNetV3 Small is covered.
-- The current exported model uses a fixed batch size of one.
-- Each recorded correctness smoke test uses one synthetic input.
-- Only ONNX Runtime CPU execution has been validated.
-- CoreML Execution Provider execution has not been evaluated.
-- Formal latency and throughput measurements have not been collected.
-- ORT initialization, graph optimization, and inference time have not yet
-  been separated experimentally.
-- Model accuracy on an evaluation dataset has not been measured.
-- Backend lifecycle stages are separated in code, but initialization,
-  input preparation, execution, and output conversion have not yet been
-  measured separately.
-- Thread settings are recorded, but controlled threading experiments
-  across CPU backends have not been conducted.
+- Only MobileNetV3 Small has been benchmarked.
+- Results use one fixed synthetic FP32 input with batch size 1.
+- The same prepared input is reused, so the measurements represent a
+  hot-cache microbenchmark.
+- Results cover one Apple Silicon system and should not be interpreted as
+  general hardware rankings.
+- PyTorch CPU and ONNX Runtime CPU use their runtime-default thread policies;
+  an equal-thread comparison has not yet been performed.
+- The timed interval excludes preprocessing, input transfer, output
+  conversion, postprocessing, model loading, and backend initialization.
+- Derived serial service rate is not measured concurrent throughput.
+- MPS latency is state-dependent across independent processes, and a fixed
+  warm-up count does not guarantee cross-process convergence.
+- Operator-level causes of the observed backend differences have not yet
+  been isolated through profiling.
+- CoreML Execution Provider, FP16, and INT8 execution have not been evaluated.
+- Model accuracy on a real evaluation dataset has not been measured.

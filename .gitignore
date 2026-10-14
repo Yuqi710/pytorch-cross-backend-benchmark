@@ -13,6 +13,7 @@ __pycache__/
 # Generated models and benchmark data
 artifacts/models/*.onnx
 artifacts/models/*.onnx.data
+artifacts/results/day5/local_archive/
 results/*
 !artifacts/.gitkeep
 !results/.gitkeep

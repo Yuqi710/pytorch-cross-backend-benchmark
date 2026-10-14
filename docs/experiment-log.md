@@ -610,3 +610,143 @@ All MPS cases executed rather than being skipped.
 - No per-operator MPS profiling was collected.
 - No latency, throughput, or speedup was measured.
 - Test-suite duration is not inference latency.
+
+---
+
+## Day 5: Synchronized Cross-Backend Latency Benchmark
+
+### Objective
+
+Build a reproducible latency harness over the Day 4 backend abstraction and
+separate correctness, preparation, warm-up, timed execution, synchronization,
+output conversion, statistics, and persistence into explicit lifecycle
+stages.
+
+### Implementation verification
+
+The Day 5 implementation added:
+
+- `BenchmarkConfig` validation
+- synchronized nanosecond sampling with `perf_counter_ns`
+- linear P50/P90/P99 calculation
+- population standard deviation and coefficient of variation
+- derived batch-1 serial service rate
+- raw integer sample persistence
+- exclusive JSON creation to prevent accidental overwrite
+- real-backend integration coverage for PyTorch CPU, PyTorch MPS, and ONNX
+  Runtime CPU
+
+The complete project test run collected 55 tests and reported `55 passed`.
+
+### Formal measurement scope
+
+The timed region contains only:
+
+1. `backend.run(prepared_input)`
+2. `backend.synchronize()`
+
+The following operations are outside the timed region:
+
+- model loading and ONNX export
+- backend initialization
+- input validation and backend-native preparation
+- warm-up
+- pre-sample synchronization
+- output transfer to CPU
+- correctness validation
+- explicit output-reference release
+- JSON serialization
+
+The benchmark uses MobileNetV3-Small, FP32, batch size 1, a fixed
+`[1, 3, 224, 224]` synthetic input, request concurrency 1, 50 warm-up
+iterations, and 300 recorded iterations. Three independent processes rotate
+backend order. Each JSON file records the environment, runtime versions,
+backend settings, Git commit, source hash, model/input hashes, correctness
+metrics, raw samples, and summary statistics.
+
+### Formal AC v2 campaign
+
+The retained formal campaign used:
+
+- Git commit `f2633de90fe12c71e8808ea376487ea8b2700972`
+- AC power with the battery charged
+- `powermode=0`
+- an idle desktop
+- `PYTORCH_ENABLE_MPS_FALLBACK=0`
+- source SHA-256
+  `bdd50a2e0b186669f7d9b10e13adbe2d64a202c132b8b94dede8ba85c6be257c`
+
+All before/after correctness gates passed. PyTorch CPU matched the CPU
+reference exactly. MPS maximum absolute error was
+`8.106231689453125e-06`. ONNX Runtime CPU maximum absolute error was
+`1.1920928955078125e-05`. Every backend preserved Top-1 index 574.
+
+Per-process statistics were:
+
+| Backend | Round | Mean | P50 | P90 | P99 | CV |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| PyTorch CPU | 1 | 48.702 ms | 48.690 ms | 49.051 ms | 49.520 ms | 0.59% |
+| PyTorch CPU | 2 | 48.769 ms | 48.616 ms | 49.374 ms | 51.664 ms | 1.33% |
+| PyTorch CPU | 3 | 49.054 ms | 48.700 ms | 49.920 ms | 52.670 ms | 4.06% |
+| ONNX Runtime CPU | 1 | 1.045 ms | 1.036 ms | 1.162 ms | 1.197 ms | 6.33% |
+| ONNX Runtime CPU | 2 | 1.039 ms | 1.037 ms | 1.109 ms | 1.182 ms | 5.65% |
+| ONNX Runtime CPU | 3 | 1.077 ms | 1.067 ms | 1.159 ms | 1.219 ms | 6.32% |
+| PyTorch MPS | 1 | 3.465 ms | 3.438 ms | 3.732 ms | 4.261 ms | 7.06% |
+| PyTorch MPS | 2 | 2.741 ms | 2.726 ms | 2.804 ms | 2.990 ms | 2.08% |
+| PyTorch MPS | 3 | 2.758 ms | 2.743 ms | 2.825 ms | 3.028 ms | 2.29% |
+
+PyTorch CPU round means had a 0.72% range relative to their mean. ONNX
+Runtime CPU had a 3.65% range. MPS had a 24.22% range and therefore failed
+the original cross-round stability criterion.
+
+### MPS stability investigation
+
+Several campaigns were retained locally while investigating the MPS
+variation:
+
+1. The initial battery campaign produced MPS round means of approximately
+   `3.128`, `3.116`, and `3.296` ms.
+2. An AC campaign performed while the battery was still charging produced
+   `3.042`, `3.843`, and `4.207` ms. Raw samples in the latter rounds showed
+   strong within-run upward trends, so the campaign was excluded.
+3. With the battery charged and no macOS thermal/performance warning, three
+   consecutive diagnostic processes produced `3.388`, `2.765`, and `2.770`
+   ms. The last two differed by only about 0.18%.
+4. An explicit preconditioning process followed by the formal v2 campaign
+   did not eliminate the first-MPS-process difference: formal MPS means were
+   `3.465`, `2.741`, and `2.758` ms.
+5. Increasing in-process warm-up from 50 to 1,000 iterations produced two
+   further means of `3.506` and `3.090` ms, a 12.59% cross-process
+   difference.
+
+These tests falsified two simple explanations: continuous MPS execution did
+not inevitably trigger thermal throttling, and a larger fixed in-process
+warm-up count did not remove the process-to-process state difference. The
+available evidence localizes the problem to an external MPS/Metal device or
+runtime state not controlled by the current harness. It does not identify a
+specific internal cache, frequency, or driver mechanism.
+
+The result is therefore reported as an observed controlled-AC mean-latency
+envelope of `2.74-3.51` ms. No run was removed merely because it was slower,
+and the fastest run was not promoted as the single representative result.
+
+### Result organization
+
+- `artifacts/results/day5/formal/ac_v2/`: nine formal three-backend JSON files
+- `artifacts/results/day5/diagnostics/mps_state/`: six selected MPS state
+  diagnostics
+- `artifacts/results/day5/local_archive/`: early exploratory files retained
+  locally and excluded from Git
+
+### Limitations and follow-up
+
+- Runtime-default thread settings are recorded but not equalized.
+- The derived serial service rate is not concurrent throughput.
+- The fixed synthetic input and prepared-input scope exclude preprocessing and
+  transfer overhead.
+- Only MobileNetV3-Small, FP32, batch size 1, and one Apple Silicon machine
+  were evaluated.
+- A future benchmark revision can add convergence-based warm-up, backend
+  profiling, thread sweeps, additional models/batch sizes, and end-to-end
+  latency as separate experiments. These are not folded into the Day 5
+  baseline.
