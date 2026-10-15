@@ -115,3 +115,23 @@ def test_inspect_onnx_model_reports_graph_structure(
     # Every graph node must be represented exactly once in the per-operator
     # node counts.
     assert sum(summary.operator_counts.values()) == summary.node_count
+
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [
+        ([1, 3, 224, 224], (1, 3, 224, 224)),
+        (["batch", 3, 224, 224], ("batch", 3, 224, 224)),
+        ([None, 3, 224, 224], (None, 3, 224, 224)),
+        ([0, 3], (0, 3)),
+        (["batch", 3, "height", "width"],
+         ("batch", 3, "height", "width")),
+    ],
+)
+
+
+def test_value_info_shape_preserves_dimensions(shape, expected):
+    """Preserve concrete, symbolic, and unknown ONNX dimension metadata."""
+    value = onnx.helper.make_tensor_value_info(
+        "input", onnx.TensorProto.FLOAT, shape
+    )
+    assert onnx_export._value_info_shape(value) == expected

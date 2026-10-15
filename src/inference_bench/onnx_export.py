@@ -274,7 +274,7 @@ def _value_info_shape(
         if dimension.HasField("dim_value"):
             dimensions.append(int(dimension.dim_value))
         elif dimension.dim_param:
-            dimensions.append(dimensions.dim_param)
+            dimensions.append(dimension.dim_param)
         else:
             dimensions.append(None)
 

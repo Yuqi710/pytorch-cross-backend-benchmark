@@ -719,12 +719,12 @@ variation:
    further means of `3.506` and `3.090` ms, a 12.59% cross-process
    difference.
 
-These tests falsified two simple explanations: continuous MPS execution did
-not inevitably trigger thermal throttling, and a larger fixed in-process
-warm-up count did not remove the process-to-process state difference. The
-available evidence localizes the problem to an external MPS/Metal device or
-runtime state not controlled by the current harness. It does not identify a
-specific internal cache, frequency, or driver mechanism.
+These tests yielded two observations: continuous MPS execution did not
+consistently increase latency, and a larger fixed in-process warm-up count
+did not eliminate cross-process mean-latency differences. MPS/Metal device
+or runtime state outside the individual process remains a working hypothesis.
+Temperature, device frequency, and system scheduling have not been sufficiently
+isolated to establish the root cause.
 
 The result is therefore reported as an observed controlled-AC mean-latency
 envelope of `2.74-3.51` ms. No run was removed merely because it was slower,
