@@ -750,3 +750,98 @@ and the fastest run was not promoted as the single representative result.
   profiling, thread sweeps, additional models/batch sizes, and end-to-end
   latency as separate experiments. These are not folded into the Day 5
   baseline.
+
+---
+
+## Day 6: CPU Intra-op Thread Sweep
+
+### Objective
+
+Measure the relationship between requested CPU intra-op parallelism,
+prepared-input latency, process CPU consumption, and cross-process
+repeatability. Keep inter-op configuration at each runtime's default so that
+the experiment changes one explicit thread-control dimension.
+
+MPS is retained as a host-setting sensitivity control. The swept value is a
+PyTorch CPU intra-op setting and is not interpreted as an MPS worker-thread
+count.
+
+### Formal AC v1 campaign
+
+The retained campaign used:
+
+- Git commit `1bb0f0fb50acfb776bd4cf43812124a277248f62`
+- source SHA-256
+  `50c19fab3a646a8e0bca6a9c4e7b031aaa877d884105546532e91c7ad9fcde4c`
+- Apple M5 Pro with 48 GB unified memory
+- Python 3.11.16 and PyTorch 2.14.0
+- AC power with the battery at 100%
+- 50 warm-up iterations and 300 measured iterations
+- three independent processes per backend/configuration
+- no inherited thread-count environment variables
+- `PYTORCH_ENABLE_MPS_FALLBACK=0`
+
+The complete 45-record matrix passed source, environment, threading,
+correctness, sample-count, statistics, and cross-record fingerprint
+validation. The project test suite reported `87 passed`.
+
+### CPU results
+
+| Backend | Intra-op | Representative mean | Cross-process range | Process CPU core equivalents |
+| --- | ---: | ---: | ---: | ---: |
+| PyTorch CPU | default | 47.150 ms | 8.56% | 1.868 |
+| PyTorch CPU | 1 | 8.185 ms | 1.19% | 1.001 |
+| PyTorch CPU | 2 | 22.182 ms | 6.90% | 1.071 |
+| PyTorch CPU | 4 | 29.947 ms | 4.31% | 1.315 |
+| PyTorch CPU | 6 | 48.794 ms | 6.27% | 1.879 |
+| ONNX Runtime CPU | default | 1.051 ms | 0.53% | 9.070 |
+| ONNX Runtime CPU | 1 | 2.615 ms | 2.67% | 0.999 |
+| ONNX Runtime CPU | 2 | 1.653 ms | 0.50% | 1.995 |
+| ONNX Runtime CPU | 4 | 1.199 ms | 1.22% | 3.983 |
+| ONNX Runtime CPU | 6 | 1.050 ms | 0.09% | 5.953 |
+
+PyTorch CPU was fastest with one intra-op thread and became slower as the
+requested thread count increased. The repeated observation is valid for this
+model and environment, but the experiment does not identify its
+operator-level cause.
+
+ONNX Runtime CPU scaled through six explicit threads. Runtime-default and
+explicit six-thread latency were effectively equal, while explicit
+six-thread execution used a lower process CPU-time ratio.
+
+`average_process_cpu_core_equivalents` is accumulated process CPU time divided
+by sampling-block wall time. It estimates average process CPU consumption and
+is not an active-thread count.
+
+### Matched intra-op comparison
+
+At requested intra-op counts of 1, 2, 4, and 6, the PyTorch CPU over ONNX
+Runtime CPU latency ratios were `3.13x`, `13.42x`, `24.97x`, and `46.48x`.
+
+Matching the requested intra-op count removes one configuration difference.
+It does not equalize inter-op behavior, graph optimization, operator kernels,
+memory planning, or internal runtime scheduling.
+
+### MPS sensitivity control
+
+MPS representative means ranged from `2.986 ms` to `3.424 ms`. Individual
+configuration groups had cross-process ranges from `9.24%` to `22.47%`.
+Because the within-configuration process variation overlaps the
+between-configuration difference, no causal MPS thread-setting conclusion is
+drawn.
+
+### Result organization
+
+- `artifacts/results/day6/formal/ac_v1/raw/`: 45 immutable process records
+- `artifacts/results/day6/formal/ac_v1/summary.json`: validated hierarchical
+  summary
+- `artifacts/results/day6/formal/ac_v1/summary.csv`: 15-row analysis table
+
+### Limitations and follow-up
+
+- Inter-op policies remain runtime defaults.
+- The process CPU-time ratio is not an active-thread measurement.
+- The PyTorch CPU reverse-scaling cause requires operator-level profiling.
+- MPS cross-process state remains uncontrolled.
+- Convergence-based warm-up has not yet been implemented.
+- Results still cover one model, input, precision, batch size, and machine.

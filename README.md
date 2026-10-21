@@ -7,8 +7,8 @@ The project currently focuses on Apple Silicon and separates model loading,
 device transfer, inference execution, synchronization, result validation,
 and performance measurement into explicit lifecycle stages.
 
-> Current milestone: Day 5 - Correctness-gated, Synchronized latency
-> benchmarking for PyTorch CPU, PyTorch MPS, and ONNX Runtime CPU.
+> Current milestone: Day 6 - CPU intra-op thread sweep, matched-thread
+> comparison, and cross-process stability analysis.
 
 # Project Goals
 
@@ -102,6 +102,19 @@ and [the experiment log](docs/experiment-log.md).
  - Three independent processes with rotated backend execution order
  - Runtime, hardware, thread-policy, source, model, and input metadata
  - Collision-safe machine-readable JSON result persistence
+
+### Day 6 — CPU Intra-op Thread Sweep
+
+- Explicit PyTorch CPU and ONNX Runtime CPU intra-op configurations:
+  default, 1, 2, 4, and 6
+- Unchanged runtime-default inter-op policies
+- Three independent processes per backend and configuration
+- Rotated execution order across rounds
+- Matched intra-op comparison between the two CPU runtimes
+- Process CPU-time to wall-time ratio reporting
+- MPS host-thread sensitivity control
+- Strict validation of source, hardware, runtime, correctness, thread
+  metadata, raw samples, and persisted statistics
 
 ## Current Reproducible Results
 
@@ -222,6 +235,38 @@ Selected MPS diagnostics are stored in
 [`artifacts/results/day5/diagnostics/mps_state/`](artifacts/results/day5/diagnostics/mps_state/).
 See the [experiment log](docs/experiment-log.md) for the complete analysis.
 
+### CPU Intra-op Thread Sweep
+
+Day 6 evaluated runtime-default and explicit intra-op configurations of
+1, 2, 4, and 6. Each backend/configuration pair ran in three independent
+processes. Representative latency is the median of the three process means.
+
+PyTorch CPU was fastest with one explicit intra-op thread at `8.185 ms`.
+The 2-, 4-, and 6-thread configurations were respectively `2.71x`, `3.66x`,
+and `5.96x` slower than the single-thread result. This reverse scaling is a
+repeated runtime observation; its operator-level cause has not yet been
+established through profiling.
+
+ONNX Runtime CPU improved from `2.615 ms` at one thread to `1.050 ms` at
+six threads, a `2.49x` speedup. Its runtime-default result was `1.051 ms`,
+only `0.125%` slower than explicit six-thread execution. The default policy
+used approximately `9.07` process CPU core equivalents, compared with
+`5.95` for the explicit six-thread configuration.
+
+At matched intra-op settings of 1, 2, 4, and 6, PyTorch CPU latency was
+respectively `3.13x`, `13.42x`, `24.97x`, and `46.48x` higher than ONNX
+Runtime CPU latency. These are runtime-level comparisons; inter-op defaults,
+graph optimization, kernels, memory planning, and thread-pool behavior still
+differ.
+
+MPS representative means ranged from `2.986 ms` to `3.424 ms`, while
+individual configurations showed `9.24%–22.47%` cross-process ranges.
+The swept value controls PyTorch CPU intra-op behavior and is not an MPS
+worker-thread count. No MPS thread optimum is inferred from this experiment.
+
+Formal results are stored in
+[`artifacts/results/day6/formal/ac_v1/`](artifacts/results/day6/formal/ac_v1/).
+
 ## Environment
 
 The current reference environment is:
@@ -329,6 +374,59 @@ Each process writes a machine-readable JSON record containing raw latency
 samples, summary statistics, correctness results, runtime configuration,
 environment metadata, and reproducibility fingerprints.
 
+### Day6 CPU intra-op thread sweep
+
+Run the lightweight 45-process matrix before collecting formal results:
+
+```bash
+DAY6_PYTHON_BIN=.venv/bin/python \
+DAY6_SMOKE_OUTPUT_DIR=artifacts/results/day6/local_smoke/cpu_threads/raw \
+bash scripts/day6_run_cpu_thread_sweep_lite.sh
+```
+
+The lite campaign uses two warm-up calls and one measured call per process.
+It verifies matrix expansion, backend execution, correctness gates, thread
+metadata, result persistence, and collision handling. Its output is local
+smoke evidence and must not be interpreted as a latency result. The default
+smoke directory must contain no existing JSON files.
+
+Before the formal campaign, require a clean Git worktree, connect AC power,
+and remove inherited thread-count overrides:
+
+```bash
+git status --short
+unset OMP_NUM_THREADS
+unset MKL_NUM_THREADS
+unset OPENBLAS_NUM_THREADS
+unset VECLIB_MAXIMUM_THREADS
+unset NUMEXPR_NUM_THREADS
+```
+
+Run the formal 45-process campaign:
+
+```bash
+DAY6_PYTHON_BIN=.venv/bin/python \
+DAY6_OUTPUT_DIR=artifacts/results/day6/staging/cpu_threads/raw \
+bash scripts/day6_run_cpu_thread_sweep.sh
+```
+
+The formal runner uses 50 warm-up calls and 300 measured calls for each
+backend/configuration pair. It requires a fixed Git commit, a clean worktree,
+unset thread environment variables, and an output directory containing no
+existing JSON files.
+
+Validate and summarize a completed staging campaign:
+
+```bash
+python scripts/day6_summarize_cpu_threads.py \
+  --input-dir artifacts/results/day6/staging/cpu_threads/raw \
+  --output-dir artifacts/results/day6/staging/cpu_threads
+```
+
+The summarizer validates the complete experiment contract before creating
+summary.json and summary.csv. It refuses to overwrite existing summary
+files or modify raw records.
+
 ## Repository Structure
 
 ```text
@@ -345,7 +443,11 @@ environment metadata, and reproducibility fingerprints.
 │   ├── day3_ort_correctness.py          # PyTorch/ORT CPU numerical-consistency experiment
 │   ├── day4_backends_smoke.py           # Unified three-backend correctness smoke test
 │   ├── day5_benchmark.py                # Single-process benchmark entry
-│   └── day5_run_baseline.sh             # Rotated three-round compaign
+│   ├── day5_run_baseline.sh             # Rotated three-round campaign
+│   ├── day6_cpu_threads.py              # Single-process thread experiment
+│   ├── day6_run_cpu_thread_sweep_lite.sh # Lightweight matrix smoke test
+│   ├── day6_run_cpu_thread_sweep.sh      # Formal 45-process thread campaign
+│   └── day6_summarize_cpu_threads.py     # Result validation and JSON/CSV aggregation
 ├── src/
 │   └── inference_bench/
 │       ├── backends.py                  # Backend protocol, adapters, and inference lifecycle
@@ -355,6 +457,7 @@ environment metadata, and reproducibility fingerprints.
 │       ├── models.py                    # Model construction
 │       ├── onnx_export.py               # ONNX export and graph inspection
 │       ├── ort_backend.py               # ORT CPU session creation and inference adapter
+│       ├── thread_sweep.py              # CPU thread-sweep validation and analysis
 │       └── validation.py                # Backend-independent output validation and error metrics
 ├── tests/
 │   ├── test_backends.py
@@ -365,6 +468,7 @@ environment metadata, and reproducibility fingerprints.
 │   ├── test_models.py
 │   ├── test_onnx_export.py
 │   ├── test_ort_backend.py
+│   ├── test_thread_sweep.py
 │   └── test_validation.py
 └── pyproject.toml
 ```
@@ -395,7 +499,7 @@ The project follows several rules to avoid misleading benchmark conclusions:
 - [x] ONNX Runtime CPU integration and cross-backend correctness validation
 - [x] Unified backend inference lifecycle
 - [x] Reproducible synchronized cross-backend latency benchmark
-- [ ] Benchmark methodology refinement and controlled-variable experiments
+- [x] Benchmark methodology refinement and controlled-variable experiments
 - [ ] Graph optimization and operator-level profiling
 - [ ] Model and workload matrix expansion
 - [ ] Precision, quantization, and deployment-backend optimization
@@ -409,8 +513,9 @@ The project follows several rules to avoid misleading benchmark conclusions:
   hot-cache microbenchmark.
 - Results cover one Apple Silicon system and should not be interpreted as
   general hardware rankings.
-- PyTorch CPU and ONNX Runtime CPU use their runtime-default thread policies;
-  an equal-thread comparison has not yet been performed.
+- Matched PyTorch CPU and ONNX Runtime CPU intra-op configurations have been
+  measured while inter-op policies remain runtime defaults. This is not a
+  complete equalization of runtime thread activity.
 - The timed interval excludes preprocessing, input transfer, output
   conversion, postprocessing, model loading, and backend initialization.
 - Derived serial service rate is not measured concurrent throughput.
