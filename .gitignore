@@ -14,6 +14,8 @@ __pycache__/
 artifacts/models/*.onnx
 artifacts/models/*.onnx.data
 artifacts/results/day5/local_archive/
+artifacts/results/day6/local_smoke/
+artifacts/results/day6/staging/
 results/*
 !artifacts/.gitkeep
 !results/.gitkeep

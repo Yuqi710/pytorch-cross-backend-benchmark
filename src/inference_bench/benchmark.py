@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from time import perf_counter_ns
+from time import perf_counter_ns, process_time_ns
 from typing import TYPE_CHECKING, Callable, Sequence, TypeVar
 
 import numpy as np
@@ -33,6 +33,26 @@ class BenchmarkConfig:
             raise ValueError("warmup must be a nonnegative integer")
         if type(self.iterations) is not int or self.iterations < 1:
             raise ValueError("iterations must be a positive integer")
+
+
+@dataclass(frozen=True)
+class LatencyMeasurement:
+    """Raw latency samples and block-level timing for one benchmark run.
+
+    samples_ns contains one synchronized inference latency per measured
+    iteration. The block-level fields cover the complete post-warm-up
+    sampling loop, including per-iteration boundary synchronization,
+    timestamp collection, and output-reference release.
+
+    average_process_cpu_core_equivalents is the ratio of accumulated
+    process CPU time to elapsed wall time. It estimates average CPU
+    consumption across the process and is not an active-thread count.
+    """
+
+    samples_ns: tuple[int, ...]
+    sampling_block_wall_time_ns: int
+    sampling_block_process_cpu_time_ns: int
+    average_process_cpu_core_equivalents: float
 
 
 @dataclass(frozen=True)
@@ -101,19 +121,30 @@ def summarize_latency(
     )
 
 
-def collect_latency_samples(
+def collect_latency_measurement(
     backend: InferenceBackend[PreparedInput, NativeOutput],
     x: torch.Tensor,
     config: BenchmarkConfig,
     *,
     clock_ns: Callable[[], int] = perf_counter_ns,
-) -> tuple[int, ...]:
-    """Measure one synchronous inference call per sample.
+    block_clock_ns: Callable[[], int] = perf_counter_ns,
+    process_clock_ns: Callable[[], int] = process_time_ns,
+) -> LatencyMeasurement:
+    """Collect synchronized latency samples and block-level CPU usage.
 
-    Preparation, pre-sample synchronization, output conversion, and explicit
-    output-reference release are outside measured intervals. Runtime dispatch
-    and output allocation inside run(), plus completion synchronization,
-    remain included. Caller must gate correctness before and after sampling.
+    Input preparation and warm-up complete before either block-level
+    clock starts. Each latency sample continues to include backend.run()
+    and completion synchronizaiton while excluding input preparation,
+    pre-sample synchronization, and explicit output-reference release.
+
+    The outer wall-time interval covers the complete measured sampling
+    loop. Process CPU time accumulates CPU work performed by the process
+    during that interval and excludes time spent sleeping. Their ratio
+    is reported as average CPU core equivalents rather than as a worker
+    or active-thread count.
+
+    Injectable clocks make the timing boundaries independently testable
+    without changing the production clock implementations.
     """
 
     # Prepare input once and wait for preparation-related work to complete.
@@ -125,6 +156,10 @@ def collect_latency_samples(
         output = backend.run(prepared)
         backend.synchronize()
         del output
+
+    # Start the wall clock before the process CPU clock.
+    block_wall_start_ns = block_clock_ns()
+    block_cpu_start_ns = process_clock_ns()
 
     samples: list[int] = []
     for _ in range(config.iterations):
@@ -148,7 +183,53 @@ def collect_latency_samples(
             raise ValueError("Timer produced a nonpositive or invalid interval")
         samples.append(elapsed_ns)
 
-    return tuple(samples)
+    # Read the process CPU clock before the outer wall clock.
+    block_cpu_time_ns = (
+        process_clock_ns() - block_cpu_start_ns
+    )
+    block_wall_time_ns = (
+        block_clock_ns() - block_wall_start_ns
+    )
+
+    if block_wall_time_ns <= 0:
+        raise ValueError(
+            "Sampling block wall time must be positive"
+        )
+    if block_cpu_time_ns < 0:
+        raise ValueError(
+            "Sampling block process CPU time cannot be negative"
+        )
+
+    return LatencyMeasurement(
+        samples_ns=tuple(samples),
+        sampling_block_wall_time_ns=block_wall_time_ns,
+        sampling_block_process_cpu_time_ns=block_cpu_time_ns,
+        # A value of 3.5 means that the process consumed CPU time at an
+        # average rate equivalent to 3.5 fully utilized CPU cores.
+        average_process_cpu_core_equivalents=(
+            block_cpu_time_ns / block_wall_time_ns
+        ),
+    )
+
+
+def collect_latency_samples(
+    backend: InferenceBackend[PreparedInput, NativeOutput],
+    x: torch.Tensor,
+    config: BenchmarkConfig,
+    *,
+    clock_ns: Callable[[], int] = perf_counter_ns,
+) -> tuple[int, ...]:
+    """Return only raw latency samples for backward-compatible callers.
+
+    New callers that also require process-level CPU observations should
+    use collect_latency_measurement().
+    """
+    return collect_latency_measurement(
+        backend,
+        x,
+        config,
+        clock_ns=clock_ns,
+    ).samples_ns
 
 
 def save_json_result(result: dict[str, object], path: str | Path) -> Path:

@@ -181,3 +181,76 @@ def test_json_result_rejects_nonfinite_values_before_creating_file(tmp_path):
     with pytest.raises(ValueError):
         benchmark.save_json_result({"latency": float("nan")}, path)
     assert not path.exists()
+
+
+def test_latency_measurement_reports_average_core_equivalents():
+    """Measure process CPU time over the complete post-warmup sample block."""
+
+    sample_clock = iter([10, 20])
+    block_wall_clock = iter([100, 200])
+    process_cpu_clock = iter([30, 90])
+
+    measurement = benchmark.collect_latency_measurement(
+        RecordingBackend([]),
+        object(),
+        benchmark.BenchmarkConfig(
+            warmup=0,
+            iterations=1,
+        ),
+        clock_ns=lambda: next(sample_clock),
+        block_clock_ns=lambda: next(block_wall_clock),
+        process_clock_ns=lambda: next(process_cpu_clock),
+    )
+
+    # The individual inference interval spans from 10 to 20 ns.
+    assert measurement.samples_ns == (10,)
+
+    # The outer sample block spans from 100 to 200 ns.
+    assert measurement.sampling_block_wall_time_ns == 100
+
+    # The process consumes 60 ns of aggregate CPU time during that block.
+    assert measurement.sampling_block_process_cpu_time_ns == 60
+
+    # Aggregate process CPU time divided by wall time gives an average
+    # CPU-core equivalent, not an observed active-thread count.
+    assert measurement.average_process_cpu_core_equivalents == pytest.approx(0.6)
+
+
+@pytest.mark.parametrize(
+    (
+        "block_wall_ticks",
+        "process_cpu_ticks",
+        "expected_message",
+    ),
+    [
+        ((100, 100), (20, 30), "wall time must be positive"),
+        ((100, 200), (30, 20), "process CPU time cannot be negative"),
+    ],
+    ids=[
+        "nonpositive_wall_time",
+        "negative_process_cpu_time",
+    ],
+)
+def test_latency_measurement_rejects_invalid_block_clocks(
+    block_wall_ticks,
+    process_cpu_ticks,
+    expected_message,
+):
+    """Reject invalid outer timing intervals instead of persisting them."""
+
+    sample_clock = iter([10, 20])
+    block_wall_clock = iter(block_wall_ticks)
+    process_cpu_clock = iter(process_cpu_ticks)
+
+    with pytest.raises(ValueError, match=expected_message):
+        benchmark.collect_latency_measurement(
+            RecordingBackend([]),
+            object(),
+            benchmark.BenchmarkConfig(
+                warmup=0,
+                iterations=1,
+            ),
+            clock_ns=lambda: next(sample_clock),
+            block_clock_ns=lambda: next(block_wall_clock),
+            process_clock_ns=lambda: next(process_cpu_clock),
+        )

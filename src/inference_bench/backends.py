@@ -212,11 +212,19 @@ class OrtCpuBackend:
     initialization. Prepared inputs and native outputs are Numpy arrays.
     """
 
-    def __init__(self, model_path: str | Path) -> None:
+    def __init__(
+        self,
+        model_path: str | Path,
+        *,
+        intra_op_num_threads: int | None = None,
+    ) -> None:
         """Load an ONNX model and validate the supported session contract.
 
         Args:
             model_path: Path to the exported ONNX model.
+            intra_op_num_threads:
+                Explicit intra-op thread count for the ONNX Runtime
+                session. None preserves the runtime-default policy.
 
         Raises:
             RuntimeError: If the session is not restricted to the CPU EP.
@@ -230,7 +238,10 @@ class OrtCpuBackend:
         self.name = "ort_cpu"
 
         # Reuse the project's CPU-only session creation policy.
-        self._session = create_cpu_session(model_path)
+        self._session = create_cpu_session(
+            model_path,
+            intra_op_num_threads=intra_op_num_threads,
+        )
 
         # Inspect this session's registered providers.
         if self._session.get_providers() != ["CPUExecutionProvider"]:

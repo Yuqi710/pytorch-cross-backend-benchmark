@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 import torch
 from torchvision.models import mobilenet_v3_small
+import onnxruntime as ort
 
 from inference_bench import ort_backend
 from inference_bench.onnx_export import export_model_to_onnx
@@ -72,14 +73,15 @@ def exported_model(
     )
 
 
-def test_create_cpu_session_uses_only_cpu_execution_provider(
+def test_create_cpu_session_uses_cpu_execution_provider_and_runtime_thread_defaults(
     exported_model: ExportedModelFixture,
 ) -> None:
-    """The session must use only the CPU EP and preserve the model I/O contract."""
+    """Preserve the established CPU-only session policy and thread defaults."""
 
     session = ort_backend.create_cpu_session(
         exported_model.model_path
     )
+    options = session.get_session_options()
 
     # Restricting the active provider list prevents execution from
     # being delegated to another provider such as Core ML.
@@ -94,6 +96,20 @@ def test_create_cpu_session_uses_only_cpu_execution_provider(
     assert [value.name for value in session.get_outputs()] == [
         "logits"
     ]
+
+    # Zero is ONNX Runtime's sentinel for its runtime-selected thread
+    # policy. It does not mean that the session executes with zero threads.
+    assert options.intra_op_num_threads == 0
+    assert options.inter_op_num_threads == 0
+
+    # Graph nodes remain sequential while individual operators may use
+    # the intra-op thread pool.
+    assert options.execution_mode == (
+        ort.ExecutionMode.ORT_SEQUENTIAL
+    )
+    assert options.graph_optimization_level == (
+        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    )
 
 
 def test_ort_cpu_output_matches_pytorch_cpu(
@@ -144,3 +160,61 @@ def test_ort_cpu_output_matches_pytorch_cpu(
     # Confirm that the persisted comparison summary agrees with
     # the strict element-wise assertion above.
     assert comparison.allclose is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    [0, -1, True, 1.5],
+    ids=[
+        "zero",
+        "negative",
+        "boolean",
+        "non_integer",
+    ],
+)
+def test_create_cpu_session_rejects_invalid_intra_op_thread_count(
+    exported_model: ExportedModelFixture,
+    value: object,
+) -> None:
+    """Reject values that cannot represent a positive thread count."""
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "intra_op_num_threads must be a positive integer or None"
+        ),
+    ):
+        ort_backend.create_cpu_session(
+            exported_model.model_path,
+            intra_op_num_threads=value,
+        )
+
+
+def test_create_cpu_session_applies_explicit_intra_op_only(
+    exported_model: ExportedModelFixture,
+) -> None:
+    """Apply the requested intra-op count without changing inter-op policy."""
+
+    session = ort_backend.create_cpu_session(
+        exported_model.model_path,
+        intra_op_num_threads=2,
+    )
+    options = session.get_session_options()
+
+    # The experiment changes only the selected independent variable.
+    assert options.intra_op_num_threads == 2
+
+    # Inter-op remains delegated to the ONNX Runtime default policy.
+    assert options.inter_op_num_threads == 0
+
+    # Existing execution and optimization policies remain unchanged.
+    assert options.execution_mode == (
+        ort.ExecutionMode.ORT_SEQUENTIAL
+    )
+    assert options.graph_optimization_level == (
+        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    )
+
+    assert session.get_providers() == [
+        "CPUExecutionProvider"
+    ]

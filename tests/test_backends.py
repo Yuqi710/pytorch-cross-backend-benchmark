@@ -198,3 +198,34 @@ def test_run_once_obeys_lifecycle_order(model_case):
         rtol=1e-4,
         atol=1e-4,
     )
+
+
+def test_ort_backend_forwards_and_reports_explicit_intra_op_threads(
+    model_case,
+) -> None:
+    """Forward the requested thread count and expose the applied setting."""
+
+    _, _, _, model_path = model_case
+
+    backend = backends.OrtCpuBackend(
+        model_path,
+        intra_op_num_threads=4,
+    )
+    metadata = backend.metadata()
+
+    # The adapter must pass the requested value to its owned ORT session.
+    assert metadata["intra_op_num_threads"] == 4
+
+    # Day6 does not configure inter-op parallelism.
+    assert metadata["inter_op_num_threads"] == 0
+
+    # Thread configuration must not change the existing backend contract.
+    assert metadata["providers"] == [
+        "CPUExecutionProvider"
+    ]
+    assert metadata["execution_mode"] == (
+        "ExecutionMode.ORT_SEQUENTIAL"
+    )
+    assert metadata["graph_optimization_level"] == (
+        "GraphOptimizationLevel.ORT_ENABLE_ALL"
+    )

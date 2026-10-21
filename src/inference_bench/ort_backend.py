@@ -5,18 +5,45 @@ import onnxruntime as ort
 import torch
 
 
+def _validate_intra_op_num_threads(
+    value: int | None,
+) -> None:
+    """Validate an optional explicit intra-op thread count.
+
+    None preserves ONNX Runtime's default thread-selection policy.
+    An explicit value must be a positive built-in integer. Booleans
+    are rejected even though bool is a subclass of int.
+    """
+    if value is not None and (
+        type(value) is not int or value < 1
+    ):
+        raise ValueError(
+            "intra_op_num_threads must be a positive integer or None"
+        )
+
+
 def create_cpu_session(
     model_path: str | Path,
+    *,
+    intra_op_num_threads: int | None = None,
 ) -> ort.InferenceSession:
     """Create an ONNX Runtime session backed exclusively by the CPU EP.
 
     Args:
         model_path: Path to the serialized ONNX model.
+        intra_op_num_threads:
+            Explicit intra-op thread count for the ONNX Runtime
+            session. None preserves the runtime-default policy.
 
     Returns:
         An initialized ONNX Runtime inference session whose only active
         execution provider is CPUExecutionProvider.
+
+    The session retains sequential graph-node scheduling and the
+    runtime-default inter-op configuration. The configured intra-op
+    value does not represent a measured active-thread count.
     """
+    _validate_intra_op_num_threads(intra_op_num_threads)
 
     session_options = ort.SessionOptions()
 
@@ -31,6 +58,11 @@ def create_cpu_session(
     session_options.execution_mode = (
         ort.ExecutionMode.ORT_SEQUENTIAL
     )
+
+    if intra_op_num_threads is not None:
+        session_options.intra_op_num_threads = (
+            intra_op_num_threads
+        )
 
     # Explicitly restrict the session to the CPU EP so that other
     # providers available in the environment cannot execute any nodes.
