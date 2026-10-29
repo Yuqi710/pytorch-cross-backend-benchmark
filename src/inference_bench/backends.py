@@ -21,7 +21,10 @@ import numpy as np
 import torch
 from torch import nn
 
-from inference_bench.ort_backend import create_cpu_session
+from inference_bench.ort_backend import (
+    GraphOptimizationLevelName,
+    create_cpu_session,
+)
 
 
 # Connect the native data types across the lifecycle methods:
@@ -217,6 +220,7 @@ class OrtCpuBackend:
         model_path: str | Path,
         *,
         intra_op_num_threads: int | None = None,
+        graph_optimization_level: GraphOptimizationLevelName = "all",
     ) -> None:
         """Load an ONNX model and validate the supported session contract.
 
@@ -225,6 +229,9 @@ class OrtCpuBackend:
             intra_op_num_threads:
                 Explicit intra-op thread count for the ONNX Runtime
                 session. None preserves the runtime-default policy.
+            graph_optimization_level:
+                Graph-optimization level used to create the underlying
+                ORT session.
 
         Raises:
             RuntimeError: If the session is not restricted to the CPU EP.
@@ -234,13 +241,24 @@ class OrtCpuBackend:
 
         Model-loading and compatibility errors from ONNX Runtime are
         propagated to the caller.
+
+        The benchmark adapter creates a regular, non-profiled session.
+        Dedicated profiling code manages profiling sessions directly so
+        that trace collection cannot affect formal latency measurements.
         """
         self.name = "ort_cpu"
+
+        # Preserve the stable experiment-facing label separately from the
+        # runtime enum representation reported by SessionOptions.
+        self._graph_optimization_level_name = (
+            graph_optimization_level
+        )
 
         # Reuse the project's CPU-only session creation policy.
         self._session = create_cpu_session(
             model_path,
             intra_op_num_threads=intra_op_num_threads,
+            graph_optimization_level=graph_optimization_level,
         )
 
         # Inspect this session's registered providers.
@@ -319,6 +337,9 @@ class OrtCpuBackend:
             "input_name": self._input_name,
             "output_name": self._output_name,
             "providers": self._session.get_providers(),
+            "graph_optimization_level_name": (
+                self._graph_optimization_level_name
+            ),
             "graph_optimization_level": str(
                 options.graph_optimization_level
             ),

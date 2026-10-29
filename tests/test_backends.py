@@ -229,3 +229,40 @@ def test_ort_backend_forwards_and_reports_explicit_intra_op_threads(
     assert metadata["graph_optimization_level"] == (
         "GraphOptimizationLevel.ORT_ENABLE_ALL"
     )
+
+
+@pytest.mark.parametrize(
+    ("level", "runtime_level"),
+    [
+        ("disable", "GraphOptimizationLevel.ORT_DISABLE_ALL"),
+        ("basic", "GraphOptimizationLevel.ORT_ENABLE_BASIC"),
+        ("extended", "GraphOptimizationLevel.ORT_ENABLE_EXTENDED"),
+        ("all", "GraphOptimizationLevel.ORT_ENABLE_ALL"),
+    ],
+)
+def test_ort_backend_forwards_graph_level_and_preserves_correctness(
+    model_case, level, runtime_level,
+):
+    """Verify graph-policy propagation and numerical correctness."""
+
+    # Reuse the same exported model, input, and PyTorch CPU reference
+    # across all four graph-optimization policies.
+    _, x, expected, model_path = model_case
+    backend = backends.OrtCpuBackend(
+        model_path,
+        intra_op_num_threads=1,
+        graph_optimization_level=level,
+    )
+
+    metadata = backend.metadata()
+
+    # Check both the preserved request label and the effective policy
+    # read from the adapter's underlying ORT session.
+    assert metadata["graph_optimization_level_name"] == level
+    assert metadata["graph_optimization_level"] == runtime_level
+
+    # Exercise the adapter's complete inference lifecycle and require
+    # each graph policy to preserve the reference output within tolerance.
+    torch.testing.assert_close(
+        backends.run_once(backend, x), expected, rtol=1e-4, atol=1e-4
+    )

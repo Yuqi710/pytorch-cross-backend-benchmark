@@ -110,6 +110,10 @@ def test_create_cpu_session_uses_cpu_execution_provider_and_runtime_thread_defau
     assert options.graph_optimization_level == (
         ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     )
+    # Keep profiling and optimized-model serialization disabled by default
+    # so regular benchmark sessions avoid diagnostic instrumentation.
+    assert options.enable_profiling is False
+    assert options.optimized_model_filepath == ""
 
 
 def test_ort_cpu_output_matches_pytorch_cpu(
@@ -218,3 +222,60 @@ def test_create_cpu_session_applies_explicit_intra_op_only(
     assert session.get_providers() == [
         "CPUExecutionProvider"
     ]
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("disable", ort.GraphOptimizationLevel.ORT_DISABLE_ALL),
+        ("basic", ort.GraphOptimizationLevel.ORT_ENABLE_BASIC),
+        ("extended", ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED),
+        ("all", ort.GraphOptimizationLevel.ORT_ENABLE_ALL),
+    ],
+)
+def test_create_cpu_session_applies_graph_optimization_level(
+    exported_model,
+    name,
+    expected,
+):
+    # Hold intra-op threading fixed while exercising each graph policy.
+    session = ort_backend.create_cpu_session(
+        exported_model.model_path,
+        graph_optimization_level=name,
+        intra_op_num_threads=1,
+    )
+
+    # Inspect the effective session option to verify the label-to-enum mapping.
+    assert session.get_session_options().graph_optimization_level == expected
+    # Each graph policy must preserve the shared PyTorch reference within
+    # the established numerical tolerance.
+    output = ort_backend.run_ort_inference(
+        session, exported_model.input_tensor
+    )
+    torch.testing.assert_close(
+        output, exported_model.pytorch_output, rtol=1e-4, atol=1e-4
+    )
+
+
+def test_create_cpu_session_writes_optimized_model(exported_model, tmp_path):
+    output_path = tmp_path / "optimized.onnx"
+
+    # ORT serializes the optimized graph during session initialization.
+    ort_backend.create_cpu_session(
+        exported_model.model_path,
+        graph_optimization_level="basic",
+        intra_op_num_threads=1,
+        optimized_model_path=output_path,
+    )
+
+    assert output_path.is_file()
+    assert output_path.stat().st_size > 0
+    # Reload the serialized graph to verify it remains executable and
+    # preserves the reference output for the same input.
+    session = ort_backend.create_cpu_session(output_path, intra_op_num_threads=1)
+    output = ort_backend.run_ort_inference(
+        session, exported_model.input_tensor
+    )
+    torch.testing.assert_close(
+        output, exported_model.pytorch_output, rtol=1e-4, atol=1e-4
+    )

@@ -1,8 +1,38 @@
 from pathlib import Path
+from typing import Literal
 
 import onnxruntime as ort
 
 import torch
+
+
+GraphOptimizationLevelName = Literal[
+    "disable",
+    "basic",
+    "extended",
+    "all",
+]
+
+GRAPH_OPTIMIZATION_LEVELS = {
+    "disable": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+    "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
+    "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+    "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+}
+
+
+def resolve_graph_optimization_level(
+    name: GraphOptimizationLevelName,
+) -> ort.GraphOptimizationLevel:
+    """Resolve a stable graph-optimization label to its ORT enum value."""
+
+    try:
+        return GRAPH_OPTIMIZATION_LEVELS[name]
+    except KeyError as error:
+        choices = ", ".join(GRAPH_OPTIMIZATION_LEVELS)
+        raise ValueError(
+            f"graph_optimization_level must be one of: {choices}"
+        ) from error
 
 
 def _validate_intra_op_num_threads(
@@ -26,14 +56,28 @@ def create_cpu_session(
     model_path: str | Path,
     *,
     intra_op_num_threads: int | None = None,
+    graph_optimization_level: GraphOptimizationLevelName = "all",
+    profile_file_prefix: str | Path | None = None,
+    optimized_model_path: str | Path | None = None,
 ) -> ort.InferenceSession:
     """Create an ONNX Runtime session backed exclusively by the CPU EP.
 
     Args:
-        model_path: Path to the serialized ONNX model.
+        model_path:
+            Path to the serialized ONNX model.
         intra_op_num_threads:
             Explicit intra-op thread count for the ONNX Runtime
             session. None preserves the runtime-default policy.
+        graph_optimization_level:
+            Graph-optimization policy applied during session
+            initialization.
+        profile_file_prefix:
+            Prefix for the ORT profiling trace. None leaves profiling
+            disabled.
+        optimized_model_path:
+            Destination for the graph produced by ORT optimization.
+            None disables optimized-model serialization.
+
 
     Returns:
         An initialized ONNX Runtime inference session whose only active
@@ -42,15 +86,18 @@ def create_cpu_session(
     The session retains sequential graph-node scheduling and the
     runtime-default inter-op configuration. The configured intra-op
     value does not represent a measured active-thread count.
+
+    Profiling and optimized-model serialization are optional diagnostic
+    features. The regular benchmark path leaves both disabled.
     """
     _validate_intra_op_num_threads(intra_op_num_threads)
 
     session_options = ort.SessionOptions()
 
-    # Apply all graph optimizations supported by the active CPU
-    # execution provider during session initialization.
+    # Apply the selected graph-transformation policy while initializing
+    # the inference session.
     session_options.graph_optimization_level = (
-        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        resolve_graph_optimization_level(graph_optimization_level)
     )
 
     # Schedule graph nodes sequentially. Individual operator kernels
@@ -62,6 +109,19 @@ def create_cpu_session(
     if intra_op_num_threads is not None:
         session_options.intra_op_num_threads = (
             intra_op_num_threads
+        )
+
+    # Enable runtime event collection only for dedicated profiling runs.
+    # The final trace path is returned by session.end_profiling().
+    if profile_file_prefix is not None:
+        session_options.enable_profiling = True
+        session_options.profile_file_prefix = str(profile_file_prefix)
+
+    # Serialize the optimized execution graph during session
+    # initialization when graph inspection has been requested.
+    if optimized_model_path is not None:
+        session_options.optimized_model_filepath = str(
+            optimized_model_path
         )
 
     # Explicitly restrict the session to the CPU EP so that other
