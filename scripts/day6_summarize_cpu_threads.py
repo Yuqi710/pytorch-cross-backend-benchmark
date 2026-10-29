@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 from inference_bench.thread_sweep import (
-    summary_csv_rows,
+    thread_sweep_csv_rows,
     validate_and_summarize_thread_sweep,
 )
 
@@ -70,7 +70,7 @@ def write_summary(
         )
 
     # Convert the hierarchical summary into a flat 15-row table.
-    rows = summary_csv_rows(summary)
+    rows = thread_sweep_csv_rows(summary)
 
     if not rows:
         raise ValueError("Summary did not produce any CSV rows")
