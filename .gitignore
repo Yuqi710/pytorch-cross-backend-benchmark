@@ -16,6 +16,9 @@ artifacts/models/*.onnx.data
 artifacts/results/day5/local_archive/
 artifacts/results/day6/local_smoke/
 artifacts/results/day6/staging/
+artifacts/results/day7/staging/
+artifacts/results/day7/local_archive/
+artifacts/models/day7_*.onnx
 results/*
 !artifacts/.gitkeep
 !results/.gitkeep
