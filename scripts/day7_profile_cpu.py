@@ -20,12 +20,13 @@ import platform
 import subprocess
 from dataclasses import asdict
 from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import numpy as np
 import onnx
-import onnxruntime as ort
 import torch
 import torchvision
 
@@ -33,12 +34,6 @@ from inference_bench.backends import TorchBackend, run_once
 from inference_bench.benchmark import save_json_result
 from inference_bench.models import load_model
 from inference_bench.onnx_export import export_model_to_onnx
-from inference_bench.ort_backend import (
-    GRAPH_OPTIMIZATION_LEVELS,
-    GraphOptimizationLevelName,
-    create_cpu_session,
-    run_ort_inference,
-)
 from inference_bench.profiling import (
     file_sha256,
     summarize_onnx_graph,
@@ -46,6 +41,13 @@ from inference_bench.profiling import (
     summarize_torch_profile,
 )
 from inference_bench.validation import compare_classification_outputs
+
+
+# Postponed annotations preserve ORT type hints without loading its native
+# runtime in the PyTorch profiling process.
+if TYPE_CHECKING:
+    import onnxruntime as ort
+    from inference_bench.ort_backend import GraphOptimizationLevelName
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -239,7 +241,7 @@ def ort_session_metadata(
     return {
         "name": "ort_cpu",
         "runtime": "onnxruntime",
-        "runtime_version": ort.__version__,
+        "runtime_version": version("onnxruntime"),
         "device": "cpu",
         "precision": "fp32",
         "input_shape": list(model_input.shape),
@@ -265,9 +267,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--intra-op-threads", required=True, type=int, choices=[1, 6]
     )
+    # Parse policy names independently of ORT's runtime enum mapping.
     parser.add_argument(
         "--graph-optimization-level",
-        choices=list(GRAPH_OPTIMIZATION_LEVELS),
+        choices=("disable", "basic", "extended", "all"),
         default="all",
     )
     parser.add_argument("--warmup", type=int, default=10)
@@ -396,6 +399,12 @@ def main() -> None:
         ]
 
     else:
+        # Load ORT helpers only after selecting the ORT profiling branch.
+        from inference_bench.ort_backend import (
+            create_cpu_session,
+            run_ort_inference,
+        )
+
         model_path = (
             ROOT
             / "artifacts/models"
@@ -533,7 +542,9 @@ def main() -> None:
                 "torch": torch.__version__,
                 "torchvision": torchvision.__version__,
                 "onnx": onnx.__version__,
-                "onnxruntime": ort.__version__,
+                # Read the installed version without importing the native
+                # runtime solely to populate PyTorch result metadata.
+                "onnxruntime": version("onnxruntime"),
                 "numpy": np.__version__,
             },
         },

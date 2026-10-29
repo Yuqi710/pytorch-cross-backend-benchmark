@@ -15,16 +15,15 @@ from __future__ import annotations
 import copy
 import os
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 import numpy as np
 import torch
 from torch import nn
 
-from inference_bench.ort_backend import (
-    GraphOptimizationLevelName,
-    create_cpu_session,
-)
+# Keep type-only ORT dependencies out of the shared adapter import path.
+if TYPE_CHECKING:
+    from inference_bench.ort_backend import GraphOptimizationLevelName
 
 
 # Connect the native data types across the lifecycle methods:
@@ -246,6 +245,9 @@ class OrtCpuBackend:
         Dedicated profiling code manages profiling sessions directly so
         that trace collection cannot affect formal latency measurements.
         """
+        # Load the native runtime only when an ORT backend is constructed.
+        from inference_bench.ort_backend import create_cpu_session
+
         self.name = "ort_cpu"
 
         # Preserve the stable experiment-facing label separately from the
