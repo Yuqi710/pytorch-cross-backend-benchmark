@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "experiment": "day7_ort_optimized_graph_summary",
+  "validation": {
+    "original_graph_count": 1,
+    "optimized_graph_count": 4,
+    "graph_optimization_levels": [
+      "disable",
+      "basic",
+      "extended",
+      "all"
+    ],
+    "status": "passed"
+  },
+  "original_graph": {
+    "path": "artifacts/models/day7_mobilenet_v3_small_fp32.onnx",
+    "sha256": "825e083202937eb6e2cdb654de80475fd751b046960e25efbdc83c7902089cb4",
+    "file_size_bytes": 10476133,
+    "node_count": 122,
+    "initializer_count": 110,
+    "opset_imports": {
+      "ai.onnx": 18
+    },
+    "operator_counts": {
+      "ai.onnx::Add": 6,
+      "ai.onnx::Conv": 52,
+      "ai.onnx::Gemm": 2,
+      "ai.onnx::HardSigmoid": 9,
+      "ai.onnx::HardSwish": 19,
+      "ai.onnx::Mul": 9,
+      "ai.onnx::ReduceMean": 10,
+      "ai.onnx::Relu": 14,
+      "ai.onnx::Reshape": 1
+    }
+  },
+  "optimized_graphs": [
+    {
+      "graph_optimization_level": "disable",
+      "graph": {
+        "path": "artifacts/results/day7/local_archive/ac_v3/optimized_models/disable.onnx",
+        "sha256": "78b2d9589125aca3034d4e8417a6baecbb20788b7e6ce00a4f22f9ec73e016ed",
+        "file_size_bytes": 10180615,
+        "node_count": 141,
+        "initializer_count": 110,
+        "opset_imports": {
+          "ai.onnx": 18,
+          "ai.onnx.ml": 5,
+          "ai.onnx.preview": 1,
+          "ai.onnx.preview.training": 1,
+          "ai.onnx.training": 1,
+          "com.microsoft": 1,
+          "com.microsoft.experimental": 1,
+          "com.microsoft.nchwc": 1,
+          "org.pytorch.aten": 1
+        },
+        "operator_counts": {
+          "ai.onnx::Add": 6,
+          "ai.onnx::Conv": 52,
+          "ai.onnx::Gemm": 2,
+          "ai.onnx::HardSigmoid": 28,
+          "ai.onnx::Mul": 28,
+          "ai.onnx::ReduceMean": 10,
+          "ai.onnx::Relu": 14,
+          "ai.onnx::Reshape": 1
+        }
+      },
+      "node_count_change": 19,
+      "node_count_change_percent": 15.573770491803284,
+      "initializer_count_change": 0,
+      "file_size_change_bytes": -295518,
+      "file_size_change_percent": -2.82086911267736,
+      "operator_count_changes": {
+        "ai.onnx::HardSigmoid": 19,
+        "ai.onnx::HardSwish": -19,
+        "ai.onnx::Mul": 19
+      },
+      "domain_count_changes": {
+        "ai.onnx": 19
+      }
+    },
+    {
+      "graph_optimization_level": "basic",
+      "graph": {
+        "path": "artifacts/results/day7/local_archive/ac_v3/optimized_models/basic.onnx",
+        "sha256": "78b2d9589125aca3034d4e8417a6baecbb20788b7e6ce00a4f22f9ec73e016ed",
+        "file_size_bytes": 10180615,
+        "node_count": 141,
+        "initializer_count": 110,
+        "opset_imports": {
+          "ai.onnx": 18,
+          "ai.onnx.ml": 5,
+          "ai.onnx.preview": 1,
+          "ai.onnx.preview.training": 1,
+          "ai.onnx.training": 1,
+          "com.microsoft": 1,
+          "com.microsoft.experimental": 1,
+          "com.microsoft.nchwc": 1,
+          "org.pytorch.aten": 1
+        },
+        "operator_counts": {
+          "ai.onnx::Add": 6,
+          "ai.onnx::Conv": 52,
+          "ai.onnx::Gemm": 2,
+          "ai.onnx::HardSigmoid": 28,
+          "ai.onnx::Mul": 28,
+          "ai.onnx::ReduceMean": 10,
+          "ai.onnx::Relu": 14,
+          "ai.onnx::Reshape": 1
+        }
+      },
+      "node_count_change": 19,
+      "node_count_change_percent": 15.573770491803284,
+      "initializer_count_change": 0,
+      "file_size_change_bytes": -295518,
+      "file_size_change_percent": -2.82086911267736,
+      "operator_count_changes": {
+        "ai.onnx::HardSigmoid": 19,
+        "ai.onnx::HardSwish": -19,
+        "ai.onnx::Mul": 19
+      },
+      "domain_count_changes": {
+        "ai.onnx": 19
+      }
+    },
+    {
+      "graph_optimization_level": "extended",
+      "graph": {
+        "path": "artifacts/results/day7/local_archive/ac_v3/optimized_models/extended.onnx",
+        "sha256": "09f2061a23fbc016d13d5f42d3c59e654fbcd0e44a06adaf9a364d1af39b3144",
+        "file_size_bytes": 10180559,
+        "node_count": 118,
+        "initializer_count": 110,
+        "opset_imports": {
+          "ai.onnx": 18,
+          "ai.onnx.ml": 5,
+          "ai.onnx.preview": 1,
+          "ai.onnx.preview.training": 1,
+          "ai.onnx.training": 1,
+          "com.microsoft": 1,
+          "com.microsoft.experimental": 1,
+          "com.microsoft.nchwc": 1,
+          "org.pytorch.aten": 1
+        },
+        "operator_counts": {
+          "ai.onnx::Add": 6,
+          "ai.onnx::Conv": 29,
+          "ai.onnx::Gemm": 2,
+          "ai.onnx::HardSigmoid": 19,
+          "ai.onnx::Mul": 28,
+          "ai.onnx::ReduceMean": 10,
+          "ai.onnx::Reshape": 1,
+          "com.microsoft::FusedConv": 23
+        }
+      },
+      "node_count_change": -4,
+      "node_count_change_percent": -3.2786885245901676,
+      "initializer_count_change": 0,
+      "file_size_change_bytes": -295574,
+      "file_size_change_percent": -2.8214036610646365,
+      "operator_count_changes": {
+        "ai.onnx::Conv": -23,
+        "ai.onnx::HardSigmoid": 10,
+        "ai.onnx::HardSwish": -19,
+        "ai.onnx::Mul": 19,
+        "ai.onnx::Relu": -14,
+        "com.microsoft::FusedConv": 23
+      },
+      "domain_count_changes": {
+        "ai.onnx": -27,
+        "com.microsoft": 23
+      }
+    },
+    {
+      "graph_optimization_level": "all",
+      "graph": {
+        "path": "artifacts/results/day7/local_archive/ac_v3/optimized_models/all.onnx",
+        "sha256": "d0964a00c6ccd6dfd2d9cff8cf5129c3b9a5f011070752f1d13ee1792ed2a443",
+        "file_size_bytes": 10180703,
+        "node_count": 114,
+        "initializer_count": 110,
+        "opset_imports": {
+          "ai.onnx": 18,
+          "ai.onnx.ml": 5,
+          "ai.onnx.preview": 1,
+          "ai.onnx.preview.training": 1,
+          "ai.onnx.training": 1,
+          "com.microsoft": 1,
+          "com.microsoft.experimental": 1,
+          "com.microsoft.nchwc": 1,
+          "org.pytorch.aten": 1
+        },
+        "operator_counts": {
+          "ai.onnx::Conv": 22,
+          "ai.onnx::Gemm": 2,
+          "ai.onnx::HardSigmoid": 19,
+          "ai.onnx::Mul": 28,
+          "ai.onnx::ReduceMean": 10,
+          "ai.onnx::Reshape": 1,
+          "ai.onnx::Transpose": 2,
+          "com.microsoft::FusedConv": 29,
+          "com.microsoft::NhwcFusedConv": 1
+        }
+      },
+      "node_count_change": -8,
+      "node_count_change_percent": -6.5573770491803245,
+      "initializer_count_change": 0,
+      "file_size_change_bytes": -295430,
+      "file_size_change_percent": -2.820029108068789,
+      "operator_count_changes": {
+        "ai.onnx::Add": -6,
+        "ai.onnx::Conv": -30,
+        "ai.onnx::HardSigmoid": 10,
+        "ai.onnx::HardSwish": -19,
+        "ai.onnx::Mul": 19,
+        "ai.onnx::Relu": -14,
+        "ai.onnx::Transpose": 2,
+        "com.microsoft::FusedConv": 29,
+        "com.microsoft::NhwcFusedConv": 1
+      },
+      "domain_count_changes": {
+        "ai.onnx": -38,
+        "com.microsoft": 30
+      }
+    }
+  ],
+  "cross_campaign_validation": {
+    "git_commit": "22753d099c451e15015190443e1ba4c859b30925",
+    "weights_sha256": "eb1028c72b33c4a15ccc189cef35daae558385dfae44ab31374e84788eaad6ad",
+    "input_sha256": "db91944d34fdfa7e2c95ed5bb6c29c3fdd77f834a28e3a2d171e4393306d6d35",
+    "onnx_sha256": "825e083202937eb6e2cdb654de80475fd751b046960e25efbdc83c7902089cb4",
+    "status": "passed"
+  }
+}

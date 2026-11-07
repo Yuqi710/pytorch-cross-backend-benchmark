@@ -845,3 +845,283 @@ drawn.
 - MPS cross-process state remains uncontrolled.
 - Convergence-based warm-up has not yet been implemented.
 - Results still cover one model, input, precision, batch size, and machine.
+
+---
+
+## Day 7: CPU Graph Optimization and Operator Profiling
+
+### Objective and experiment design
+
+Measure the relationship between ORT graph-optimization level and CPU
+threading, and locate the operator costs behind Day6's PyTorch reverse
+scaling. Three formal campaigns use the same implementation and workload.
+Together they provide nine latency processes per ORT graph/thread
+configuration and three captures per profiling configuration.
+
+Each campaign contains:
+
+- 24 latency processes: four graph levels × two intra-op settings × three
+  rounds, with configuration order rotated across rounds. Each process has
+  50 warm-up calls and 300 measured calls.
+- 10 profiles: PyTorch CPU at t1/t6, plus four ORT levels at t1/t6. Each
+  capture has ten external warm-up calls and ten active calls.
+
+Formal latency covers the prepared-input backend call and synchronization.
+Loading, export, session initialization, input preparation, correctness
+checks, and serialization remain outside the measured interval. Formal
+sessions do not enable profiling or serialize optimized models.
+
+PyTorch profiling records CPU activities, shapes, and memory with one wait
+step, two profiler warm-up steps, and ten active steps. ORT records 21
+model_run events: one correctness call, ten warm-up calls, and ten active
+calls. Its summary selects the final ten; profiling ends before the final
+correctness check. Each ORT t1 session saves its optimized graph.
+
+### Environment and source identity
+
+| Campaign | Date | Process-start window | Power snapshot |
+|---|---|---|---|
+| ac_v1 | 2026-10-30 | 00:32:09–00:34:21 | AC, 100%, charged |
+| ac_v2 | 2026-10-30 | 11:51:53–11:54:01 | AC, 100%, charged |
+| ac_v3 | 2026-11-02 | 10:55:21–10:57:13 | AC, 100%, finishing charge |
+
+- Producing commit: `22753d099c451e15015190443e1ba4c859b30925`.
+- Benchmark source SHA-256:
+  `2a23b96ac41792123b407a6600716ae801d88c0a18b5048efa694222047b3d8d`.
+- Profiling source SHA-256:
+  `f8a4810185df5df435747480d57acb284d644413e8ba7f805559dc6995b2a3ab`.
+- Apple M5 Pro, 48 GB unified memory, arm64, macOS 26.5.1, Python 3.11.16.
+- PyTorch 2.14.0, torchvision 0.29.0, ONNX 1.22.0, ORT 1.30.0, NumPy 2.4.6.
+- Clean source and all five external thread-count variables unset in every record.
+- Pretrained MobileNetV3 Small, FP32, input `[1, 3, 224, 224]`, model seed 2026,
+  input seed 2027, and request concurrency 1.
+- PyTorch inter-op default 18; ORT CPUExecutionProvider, ORT_SEQUENTIAL,
+  and inter-op default 0.
+
+Model and input hashes match across all processes. The ONNX hash applies to
+ORT records; PyTorch profiles do not consume ONNX.
+
+| Artifact | SHA-256 |
+|---|---|
+| Model state | `eb1028c72b33c4a15ccc189cef35daae558385dfae44ab31374e84788eaad6ad` |
+| Input | `db91944d34fdfa7e2c95ed5bb6c29c3fdd77f834a28e3a2d171e4393306d6d35` |
+| Original ONNX | `825e083202937eb6e2cdb654de80475fd751b046960e25efbdc83c7902089cb4` |
+
+Each source hash includes src plus its own entry script, so benchmark and
+profiling hashes differ. Each producer's hash is identical across batches.
+
+### Aggregation method
+
+Each process first produces a mean from its 300 latency samples. For each
+level/thread configuration, this report takes the median of all nine
+process means, with equal weight per process. It also reports the minimum,
+maximum, and `(max - min) / median * 100` process range. Relative changes
+and thread speedups use these aggregate representative values.
+
+The three campaign summaries retain their original three-process contract.
+Their process means are combined for the table below; samples are not
+pooled into one distribution, and campaign medians are not used as the
+inputs to a second median. This preserves both process-level repetition
+and the batch structure needed to inspect state variation.
+
+### Configuration results
+
+| Level | Intra-op | Median of nine process means | Process-mean range | Range / median | Change vs same-thread disable |
+|---|---:|---:|---:|---:|---:|
+| disable | 1 | 2.652 ms | 2.626–2.694 ms | 2.56% | +0.00% |
+| basic | 1 | 2.641 ms | 2.631–2.694 ms | 2.38% | -0.41% |
+| extended | 1 | 2.624 ms | 2.597–2.645 ms | 1.83% | -1.07% |
+| all | 1 | 2.566 ms | 2.549–2.581 ms | 1.23% | -3.27% |
+| disable | 6 | 0.937 ms | 0.927–1.187 ms | 27.67% | +0.00% |
+| basic | 6 | 0.939 ms | 0.927–0.965 ms | 4.06% | +0.28% |
+| extended | 6 | 0.902 ms | 0.898–0.912 ms | 1.52% | -3.66% |
+| all | 6 | 1.043 ms | 1.035–1.047 ms | 1.17% | +11.32% |
+
+The resulting configuration pattern is:
+
+- At t1, all has the lowest representative latency, 2.566 ms, improving on
+  disable by 3.27%. At t6, extended is lowest at 0.902 ms, a 3.66% improvement.
+- All/t6 is 15.55% slower than extended/t6. Their nine-process ranges remain
+  separate. The within-campaign gaps are 15.86%, 15.71%, and 14.24%, so the
+  effect is consistently present while its magnitude varies with run state.
+- Basic is close to disable: -0.41% at t1 and +0.28% at t6 in the aggregate.
+  Its per-campaign differences change direction and the graph bytes are
+  identical, giving no evidence of a useful graph transformation here.
+- Extended/t1 gives a smaller 1.07% aggregate improvement. Its per-campaign
+  improvements span 0.21%–2.21%; it should not be reported as a fixed 2% gain.
+- Increasing intra-op from 1 to 6 improves latency at every graph level.
+  Aggregate speedups are 2.83x, 2.81x, 2.91x, and 2.46x for disable, basic,
+  extended, and all respectively.
+
+These measurements describe MobileNetV3 Small on this machine at FP32,
+batch size 1, and request concurrency 1. Graph level and thread count
+must be selected together; node reduction alone does not predict latency.
+
+### Process variability
+
+Campaign medians remain visible as a check on temporal variation:
+
+| Level | Intra-op | ac_v1 | ac_v2 | ac_v3 |
+|---|---:|---:|---:|---:|
+| disable | 1 | 2.672 ms | 2.635 ms | 2.652 ms |
+| basic | 1 | 2.653 ms | 2.657 ms | 2.639 ms |
+| extended | 1 | 2.613 ms | 2.630 ms | 2.615 ms |
+| all | 1 | 2.566 ms | 2.560 ms | 2.578 ms |
+| disable | 6 | 0.940 ms | 0.934 ms | 0.936 ms |
+| basic | 6 | 0.939 ms | 0.941 ms | 0.939 ms |
+| extended | 6 | 0.901 ms | 0.902 ms | 0.911 ms |
+| all | 6 | 1.044 ms | 1.044 ms | 1.041 ms |
+
+Extended/t6's campaign median rises from about 0.901–0.902 ms to 0.911 ms
+in ac_v3. Its within-campaign process ranges remain below 0.46%, showing
+that a tight single-campaign range does not capture all variation between
+execution periods. Temperature, frequency, and scheduling were not isolated.
+
+The ac_v1 disable/t6 round-1 mean is 1.186634 ms, with CV 68.36%, P99
+2.681055 ms, and a 13.541375 ms maximum. Fifteen samples exceed twice its
+P50. Consecutive 50-sample block means are 1.694, 1.479, 1.048, 0.952,
+0.981, and 0.966 ms. This transient slowdown occurs once among the nine
+processes and remains included in the aggregate and its 27.67% process range.
+
+Ac_v3 basic/t6 round 3 also has a tail: mean 0.965051 ms, P50 0.939813 ms,
+P99 1.323871 ms, and CV 8.42%. Its campaign process range is 4.06%.
+The ac_v1 disable/t1 rounds 2/3 have CVs of 6.63% and 5.59%.
+
+Independent repetitions and median aggregation limit the influence of a
+single slow process; retaining the ranges exposes the remaining variability.
+Fixed warm-up does not establish convergence. These observations motivate
+convergence-based warm-up and targeted diagnostics rather than removing
+slow samples.
+
+### Graph structure
+
+The original graph and each level's optimized graph have matching hashes
+across all three campaigns.
+
+| Graph | Nodes | Initializers | Serialized bytes | Main observations |
+|---|---:|---:|---:|---|
+| Original export | 122 | 110 | 10,476,133 | 52 Conv, 19 HardSwish |
+| disable | 141 | 110 | 10,180,615 | HardSwish expanded; byte-identical to basic |
+| basic | 141 | 110 | 10,180,615 | Same operator distribution and hash as disable |
+| extended | 118 | 110 | 10,180,559 | 29 Conv and 23 com.microsoft::FusedConv |
+| all | 114 | 110 | 10,180,703 | 22 Conv, 29 FusedConv, one NhwcFusedConv, two Transpose |
+
+The 19 additional nodes under disable/basic match expansion of HardSwish
+into HardSigmoid and Mul, as defined by the
+[ONNX function body](https://onnx.ai/onnx/operators/onnx__HardSwish.html#hardswish-14).
+ORT's [transformation pipeline](https://github.com/microsoft/onnxruntime/blob/f2c39fe/onnxruntime/core/session/inference_session.cc#L1409)
+includes function inlining and required preparation alongside optional
+optimizations. Disabling optional optimization therefore does not preserve
+the original serialized graph unchanged.
+
+Compared with extended, all removes six Add nodes, changes the convolution
+operator mix, and adds layout conversion. Fewer nodes do not ensure lower
+latency. The optimized models are local diagnostic artifacts; ORT documents
+[hardware compatibility requirements](https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html)
+for layout-optimized models.
+
+### PyTorch operator evidence
+
+Each thread setting has three independent captures of ten active calls.
+The table reports medians of capture-level totals and shares; each share
+is calculated before aggregation. Shape groups of the same operator are
+combined by self CPU time, excluding child time.
+
+| Intra-op | Captures | slow_conv2d_forward calls per capture | Median total self CPU time | Median slow_conv self time | Median slow_conv share | Share range |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 3 | 24,090 | 149.584 ms | 75.756 ms | 50.72% | 50.64%–51.87% |
+| 6 | 3 | 24,090 | 599.632 ms | 481.919 ms | 80.39% | 80.07%–80.57% |
+
+At t6, the single-channel 5×5 convolution groups with 7×7 and 14×14 inputs
+together account for 73.24%–73.88% of total self CPU time. The original
+graph contains 11 grouped Conv nodes; narrow, slice, and thnn_conv2d calls
+also recur in the profiles. The repeated hotspot is the small-channel
+convolution path and its surrounding dispatch work.
+
+Within each campaign, the slow_conv2d_forward self-time increase accounts
+for 89.65%–90.29% of the total self-time increase from t1 to t6. This
+localizes the instrumented increase. Shape and memory recording introduce
+[profiler overhead](https://docs.pytorch.org/docs/2.14/profiler.html#torch.profiler.profile);
+a lower-overhead kernel experiment is needed to separate computation,
+dispatch, and synchronization costs behind the Day6 latency behavior.
+
+### ORT operator and memory evidence
+
+At disable, basic, extended, and all, every active inference has 141, 141,
+118, and 114 Node events respectively, entirely on CPUExecutionProvider.
+The graph structure and operator counts are unchanged across repetitions.
+
+All/t6 has 20 Transpose calls per ten-call capture. Their total duration
+ranges from 1,030 to 1,250 us, and their Node-time share from 7.59% to 9.35%
+(median 8.28%). Layout conversion and changed convolution kernels remain
+concrete candidates for targeted diagnosis. Profile time is not directly
+subtracted from the formal latency gap.
+
+Runtime unattributed duration is model_run duration minus Node duration.
+Across the ten-call captures it spans 1,621–1,627 us for extended/t6 and
+1,595–1,671 us for all/t6. It describes time outside Node events without
+identifying one runtime subsystem.
+
+ORT memory-in-use peaks are unchanged: 10,822,240 bytes at t1 for
+disable/basic/extended and 11,808,864 for all; 12,853,856 bytes at t6 for
+disable/basic/extended and 12,857,440 for all. These event-level runtime
+observations differ from PyTorch's signed allocator deltas and process RSS.
+
+### Import isolation and telemetry
+
+Earlier attempts aborted during ORT's native telemetry shutdown after
+profiling files had been written. Commit 22753d0 defers ORT imports to the
+ORT backend and profiling branch. TYPE_CHECKING handles type-only imports,
+and version metadata is read without loading the native runtime.
+
+The operator completed all three retained campaigns with ORT_DISABLE_TELEMETRY
+unset; ac_v2/ac_v3 notes also record that policy. The JSON has no dedicated
+telemetry-environment or exit-code field. Import isolation prevents
+PyTorch-only processes from initializing ORT; it does not modify ORT's
+native telemetry implementation. No telemetry on/off performance comparison
+was performed. Earlier failed outputs were removed before these campaigns.
+
+### Validation and archives
+
+- Three campaigns contain 72 latency records (21,600 samples),
+  30 profiling records, and 15 summaries.
+- Before/after correctness passes for every record: output `[1, 1000]`,
+  Top-1 574, and rtol=atol=1e-4.
+- Source, workload, runtime, and hardware fingerprints match across
+  campaigns. Formal raw records match their staging copies byte for byte.
+- All 15 summaries reproduce byte for byte, and all 30 trace hashes match.
+  The 24 ORT summaries reproduce from traces; the six PyTorch captures
+  each contain ten active steps and matching normalized operator call counts.
+- The original model and 12 optimized models pass ONNX Checker and match
+  recorded graph statistics and hashes. Cached model-state and seeded-input
+  hashes were also reconstructed.
+- Implementation verification recorded 143 passed.
+
+Formal archives:
+
+- [ac_v1](../artifacts/results/day7/formal/ac_v1/)
+- [ac_v2](../artifacts/results/day7/formal/ac_v2/)
+- [ac_v3](../artifacts/results/day7/formal/ac_v3/)
+
+Each campaign retains its own three-process summaries. The aggregate tables
+above are derived from the individual process records across all campaigns.
+
+Traces and optimized models remain under local_archive/ac_v1, ac_v2, and
+ac_v3. The ac_v1 files were moved into a batch directory without changing
+their hashes. Paths below are relative to artifacts/results/day7:
+
+| ac_v1 path recorded in JSON | Current local path |
+|---|---|
+| `local_archive/traces/` | `local_archive/ac_v1/traces/` |
+| `local_archive/optimized_models/` | `local_archive/ac_v1/optimized_models/` |
+
+Raw commit, hashes, timestamps, samples, and summaries are preserved.
+
+### Follow-up
+
+Day7 provides a repeated-measurement baseline for graph/thread selection
+and identifies convolution and layout work for further diagnosis. Shared
+script logic extraction is the next bounded maintenance task, followed
+by targeted profiling and a second-model extension. Convergence-based
+warm-up, ResNet, ViT, Transformer, FP16, INT8, CoreML, CUDA, concurrent
+serving, and end-to-end pipelines remain future work.

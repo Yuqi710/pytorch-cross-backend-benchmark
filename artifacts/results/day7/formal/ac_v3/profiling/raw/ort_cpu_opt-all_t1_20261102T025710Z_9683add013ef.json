@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "experiment": "day7_cpu_operator_profile",
+  "run_id": "20261102T025710Z_9683add013ef",
+  "timestamp_utc": "2026-11-02T02:57:10.932999+00:00",
+  "process_id": 91223,
+  "notes": "Day7 ac_v3; second repeat; AC power; ORT_DISABLE_TELEMETRY=unset (runtime default)",
+  "profiling_scope": {
+    "purpose": "operator_diagnostics_not_formal_latency",
+    "summary_window": "active_inference_runs_only",
+    "request_concurrency": 1,
+    "input_policy": "same_prepared_synthetic_input_reused"
+  },
+  "profile_config": {
+    "external_warmup_runs": 10,
+    "active_runs": 10,
+    "pytorch_schedule": null,
+    "record_shapes": false,
+    "profile_memory": false,
+    "with_stack": false
+  },
+  "threading": {
+    "intra_op": {
+      "policy": "explicit",
+      "requested_threads": 1,
+      "runtime_reported_value": 1
+    },
+    "inter_op": {
+      "policy": "runtime_default",
+      "requested_threads": null,
+      "runtime_reported_value": 0
+    }
+  },
+  "graph_optimization_level": "all",
+  "environment": {
+    "python": "3.11.16",
+    "architecture": "arm64",
+    "system": "Darwin",
+    "macos_version": "26.5.1",
+    "logical_cpu_count": 18,
+    "cpu_model": "Apple M5 Pro",
+    "hardware_model": "Mac17,9",
+    "memory_bytes": "51539607552",
+    "power_source_snapshot_after_run": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=6946915)\t100%; finishing charge; 0:00 remaining present: true",
+    "thread_environment": {
+      "OMP_NUM_THREADS": null,
+      "MKL_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "VECLIB_MAXIMUM_THREADS": null,
+      "NUMEXPR_NUM_THREADS": null
+    },
+    "versions": {
+      "torch": "2.14.0",
+      "torchvision": "0.29.0",
+      "onnx": "1.22.0",
+      "onnxruntime": "1.30.0",
+      "numpy": "2.4.6"
+    }
+  },
+  "source": {
+    "git_commit": "22753d099c451e15015190443e1ba4c859b30925",
+    "git_status": "",
+    "source_sha256": "f8a4810185df5df435747480d57acb284d644413e8ba7f805559dc6995b2a3ab"
+  },
+  "model": {
+    "name": "mobilenet_v3_small",
+    "weights": "MobileNet_V3_Small_Weights.DEFAULT",
+    "weights_sha256": "eb1028c72b33c4a15ccc189cef35daae558385dfae44ab31374e84788eaad6ad",
+    "input_sha256": "db91944d34fdfa7e2c95ed5bb6c29c3fdd77f834a28e3a2d171e4393306d6d35",
+    "input_shape": [
+      1,
+      3,
+      224,
+      224
+    ],
+    "precision": "fp32",
+    "model_seed": 2026,
+    "input_seed": 2027,
+    "original_onnx_graph": {
+      "path": "artifacts/models/day7_mobilenet_v3_small_fp32.onnx",
+      "sha256": "825e083202937eb6e2cdb654de80475fd751b046960e25efbdc83c7902089cb4",
+      "file_size_bytes": 10476133,
+      "node_count": 122,
+      "initializer_count": 110,
+      "opset_imports": {
+        "ai.onnx": 18
+      },
+      "operator_counts": {
+        "ai.onnx::Add": 6,
+        "ai.onnx::Conv": 52,
+        "ai.onnx::Gemm": 2,
+        "ai.onnx::HardSigmoid": 9,
+        "ai.onnx::HardSwish": 19,
+        "ai.onnx::Mul": 9,
+        "ai.onnx::ReduceMean": 10,
+        "ai.onnx::Relu": 14,
+        "ai.onnx::Reshape": 1
+      }
+    }
+  },
+  "backend": {
+    "name": "ort_cpu",
+    "runtime": "onnxruntime",
+    "runtime_version": "1.30.0",
+    "device": "cpu",
+    "precision": "fp32",
+    "input_shape": [
+      1,
+      3,
+      224,
+      224
+    ],
+    "input_name": "input",
+    "output_name": "logits",
+    "providers": [
+      "CPUExecutionProvider"
+    ],
+    "graph_optimization_level_name": "all",
+    "graph_optimization_level": "GraphOptimizationLevel.ORT_ENABLE_ALL",
+    "execution_mode": "ExecutionMode.ORT_SEQUENTIAL",
+    "intra_op_num_threads": 1,
+    "inter_op_num_threads": 0,
+    "profiling_enabled": true
+  },
+  "correctness": {
+    "before": {
+      "reference_shape": [
+        1,
+        1000
+      ],
+      "candidate_shape": [
+        1,
+        1000
+      ],
+      "reference_top1_index": 574,
+      "candidate_top1_index": 574,
+      "top1_match": true,
+      "max_absolute_error": 1.1920928955078125e-05,
+      "mean_absolute_error": 2.6078857899847208e-06,
+      "rtol": 0.0001,
+      "atol": 0.0001,
+      "allclose": true
+    },
+    "after": {
+      "reference_shape": [
+        1,
+        1000
+      ],
+      "candidate_shape": [
+        1,
+        1000
+      ],
+      "reference_top1_index": 574,
+      "candidate_top1_index": 574,
+      "top1_match": true,
+      "max_absolute_error": 1.1920928955078125e-05,
+      "mean_absolute_error": 2.6078857899847208e-06,
+      "rtol": 0.0001,
+      "atol": 0.0001,
+      "allclose": true
+    }
+  },
+  "trace": {
+    "path": "artifacts/results/day7/local_archive/ac_v3/traces/ort_cpu_opt-all_t1_20261102T025710Z_9683add013ef.trace.json",
+    "sha256": "aac083fc65d024debd3ff2983713251dc61ecba95e70fb7a4abd46bba8d7ed4e"
+  },
+  "optimized_graph": {
+    "path": "artifacts/results/day7/local_archive/ac_v3/optimized_models/all.onnx",
+    "sha256": "d0964a00c6ccd6dfd2d9cff8cf5129c3b9a5f011070752f1d13ee1792ed2a443",
+    "file_size_bytes": 10180703,
+    "node_count": 114,
+    "initializer_count": 110,
+    "opset_imports": {
+      "ai.onnx": 18,
+      "ai.onnx.ml": 5,
+      "ai.onnx.preview": 1,
+      "ai.onnx.preview.training": 1,
+      "ai.onnx.training": 1,
+      "com.microsoft": 1,
+      "com.microsoft.experimental": 1,
+      "com.microsoft.nchwc": 1,
+      "org.pytorch.aten": 1
+    },
+    "operator_counts": {
+      "ai.onnx::Conv": 22,
+      "ai.onnx::Gemm": 2,
+      "ai.onnx::HardSigmoid": 19,
+      "ai.onnx::Mul": 28,
+      "ai.onnx::ReduceMean": 10,
+      "ai.onnx::Reshape": 1,
+      "ai.onnx::Transpose": 2,
+      "com.microsoft::FusedConv": 29,
+      "com.microsoft::NhwcFusedConv": 1
+    }
+  },
+  "profile_summary": {
+    "trace_sha256": "aac083fc65d024debd3ff2983713251dc61ecba95e70fb7a4abd46bba8d7ed4e",
+    "event_count": 2438,
+    "active_run_count": 10,
+    "node_event_count": 1140,
+    "total_model_run_duration_us": 28199,
+    "total_node_duration_us": 26645,
+    "runtime_unattributed_duration_us": 1554,
+    "operators": [
+      {
+        "operator": "Conv",
+        "provider": "CPUExecutionProvider",
+        "call_count": 220,
+        "total_duration_us": 16542,
+        "max_memory_in_use_bytes": 10760288,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 22892800,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 75.19090909090909,
+        "node_duration_percent": 62.082942390692445
+      },
+      {
+        "operator": "FusedConv",
+        "provider": "CPUExecutionProvider",
+        "call_count": 290,
+        "total_duration_us": 5543,
+        "max_memory_in_use_bytes": 10760288,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 34736960,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 19.113793103448277,
+        "node_duration_percent": 20.803152561456184
+      },
+      {
+        "operator": "Mul",
+        "provider": "CPUExecutionProvider",
+        "call_count": 280,
+        "total_duration_us": 1434,
+        "max_memory_in_use_bytes": 10760288,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 75437760,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 5.121428571428571,
+        "node_duration_percent": 5.381872771626947
+      },
+      {
+        "operator": "NhwcFusedConv",
+        "provider": "CPUExecutionProvider",
+        "call_count": 10,
+        "total_duration_us": 1211,
+        "max_memory_in_use_bytes": 10760288,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 6021120,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 121.1,
+        "node_duration_percent": 4.544942765997373
+      },
+      {
+        "operator": "HardSigmoid",
+        "provider": "CPUExecutionProvider",
+        "call_count": 190,
+        "total_duration_us": 664,
+        "max_memory_in_use_bytes": 10760288,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 31965440,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 3.4947368421052634,
+        "node_duration_percent": 2.492024770125727
+      },
+      {
+        "operator": "Transpose",
+        "provider": "CPUExecutionProvider",
+        "call_count": 20,
+        "total_duration_us": 564,
+        "max_memory_in_use_bytes": 10760288,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 14049280,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 28.2,
+        "node_duration_percent": 2.1167198348658283
+      },
+      {
+        "operator": "Gemm",
+        "provider": "CPUExecutionProvider",
+        "call_count": 20,
+        "total_duration_us": 444,
+        "max_memory_in_use_bytes": 10764384,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 64000,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 22.2,
+        "node_duration_percent": 1.6663539125539502
+      },
+      {
+        "operator": "ReduceMean",
+        "provider": "CPUExecutionProvider",
+        "call_count": 100,
+        "total_duration_us": 233,
+        "max_memory_in_use_bytes": 10760288,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 12544000,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 2.33,
+        "node_duration_percent": 0.8744604991555639
+      },
+      {
+        "operator": "Reshape",
+        "provider": "CPUExecutionProvider",
+        "call_count": 10,
+        "total_duration_us": 10,
+        "max_memory_in_use_bytes": 10760288,
+        "max_memory_in_use_peak_bytes": 11808864,
+        "activation_bytes": 23040,
+        "events_with_thread_scheduling_stats": 0,
+        "mean_duration_us": 1.0,
+        "node_duration_percent": 0.03753049352598987
+      }
+    ]
+  },
+  "status": "passed"
+}

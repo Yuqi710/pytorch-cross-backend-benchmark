@@ -7,8 +7,8 @@ The project currently focuses on Apple Silicon and separates model loading,
 device transfer, inference execution, synchronization, result validation,
 and performance measurement into explicit lifecycle stages.
 
-> Current milestone: Day 6 - CPU intra-op thread sweep, matched-thread
-> comparison, and cross-process stability analysis.
+> Current milestone: Day 7 - CPU graph-optimization comparison and
+> operator profiling, with validated raw records and reproducible summaries.
 
 # Project Goals
 
@@ -29,7 +29,7 @@ This project aims to build a reproducible workflow for:
 | PyTorch CPU | Implemented | Implemented | Baseline recorded |
 | PyTorch MPS | Implemented | Implemented | Available; cross-process latency is state-sensitive |
 | ONNX export | Structural validation | Not applicable | Available |
-| ONNX Runtime CPU | Implemented | Implemented | Baseline recorded |
+| ONNX Runtime CPU | Implemented | Implemented | Baseline and graph-level comparison recorded |
 | ONNX Runtime CoreML | Not Started | Not Started | Future work |
 
 Day 5 reports a prepared-input, concurrency-one latency baseline. The
@@ -115,6 +115,20 @@ and [the experiment log](docs/experiment-log.md).
 - MPS host-thread sensitivity control
 - Strict validation of source, hardware, runtime, correctness, thread
   metadata, raw samples, and persisted statistics
+
+### Day 7 — CPU Graph Optimization and Operator Profiling
+
+- Four ORT graph levels: disable, basic, extended, and all
+- Explicit intra-op settings of 1 and 6, with three independent benchmark
+  processes per configuration and rotated execution order
+- Formal latency sessions separated from diagnostic profiling sessions
+- PyTorch CPU shape and memory profiling at both thread settings
+- ORT active-window operator summaries and four serialized graph summaries
+- PyTorch execution isolated from ORT runtime imports
+- Complete 24-record benchmark and 10-record profiling validation, including
+  shared model, input, ONNX, environment, and producing-commit checks per campaign
+- Immutable raw JSON plus five reproducible JSON/CSV summaries
+- Three formal campaigns at the same implementation commit
 
 ## Current Reproducible Results
 
@@ -243,9 +257,9 @@ processes. Representative latency is the median of the three process means.
 
 PyTorch CPU was fastest with one explicit intra-op thread at `8.185 ms`.
 The 2-, 4-, and 6-thread configurations were respectively `2.71x`, `3.66x`,
-and `5.96x` slower than the single-thread result. This reverse scaling is a
-repeated runtime observation; its operator-level cause has not yet been
-established through profiling.
+and `5.96x` slower than the single-thread result. Day 7 profiling now
+localizes much of the instrumented increase to small-channel convolution
+execution; a specific scheduling or kernel-level cause remains unproven.
 
 ONNX Runtime CPU improved from `2.615 ms` at one thread to `1.050 ms` at
 six threads, a `2.49x` speedup. Its runtime-default result was `1.051 ms`,
@@ -266,6 +280,60 @@ worker-thread count. No MPS thread optimum is inferred from this experiment.
 
 Formal results are stored in
 [`artifacts/results/day6/formal/ac_v1/`](artifacts/results/day6/formal/ac_v1/).
+
+### CPU Graph Optimization and Operator Profiling
+
+Day 7 measures ORT graph optimization and CPU operator behavior through
+three formal campaigns at commit `22753d0`. The workload is MobileNetV3
+Small, FP32, `[1, 3, 224, 224]`, and request concurrency 1.
+
+Each graph/thread configuration has nine independent latency processes
+across three campaigns. Each process uses 50 warm-up calls and 300 measured
+calls. Representative latency is the median of all nine process means;
+the range shows their minimum and maximum. Raw samples and slow processes
+remain included.
+
+| ORT graph level | t1 representative latency | t1 process-mean range | t6 representative latency | t6 process-mean range |
+|---|---:|---:|---:|---:|
+| disable | 2.652 ms | 2.626–2.694 ms | 0.937 ms | 0.927–1.187 ms |
+| basic | 2.641 ms | 2.631–2.694 ms | 0.939 ms | 0.927–0.965 ms |
+| extended | 2.624 ms | 2.597–2.645 ms | **0.902 ms** | 0.898–0.912 ms |
+| all | **2.566 ms** | 2.549–2.581 ms | 1.043 ms | 1.035–1.047 ms |
+
+The measurements establish a configuration-dependent optimization pattern:
+`all` gives the lowest t1 latency, while `extended` gives the lowest t6
+latency. Relative to same-thread disable, their aggregate improvements are
+3.27% and 3.66%. At t6, all is 15.55% slower than extended; their process-mean
+ranges remain separate. The per-campaign gap spans 14.24%–15.86%.
+
+Basic and disable produce identical graph bytes and similar latency;
+their sub-1% differences change direction across campaigns. Extended's
+t1 improvement is smaller: 1.07% in the aggregate, with per-campaign
+improvements of 0.21%–2.21%.
+
+The original graph has 122 nodes. Disable/basic, extended, and all have
+141, 118, and 114, with matching hashes at each level across campaigns.
+The all graph adds two Transpose nodes and one `com.microsoft::NhwcFusedConv`.
+Fewer nodes therefore do not guarantee lower inference latency.
+
+Three PyTorch captures per thread setting identify a consistent
+small-channel convolution hotspot. `aten::_slow_conv2d_forward` accounts
+for a median 50.72% of self CPU time at t1 and 80.39% at t6. ORT all/t6
+profiles attribute 7.59%–9.35% of Node duration to Transpose. These results
+guide targeted kernel and layout diagnosis; profile durations are separate
+from formal latency.
+
+The campaigns use AC power at 100% battery. Execution completed with
+`ORT_DISABLE_TELEMETRY` unset; PyTorch profiling uses the isolated import
+path. The experiment log records power snapshots, process variability,
+and the earlier ORT telemetry shutdown incident.
+
+Raw records and per-campaign summaries are retained in
+[ac_v1](artifacts/results/day7/formal/ac_v1/),
+[ac_v2](artifacts/results/day7/formal/ac_v2/), and
+[ac_v3](artifacts/results/day7/formal/ac_v3/).
+See the [experiment log](docs/experiment-log.md) for aggregate statistics,
+measurement details, and local archive paths.
 
 ## Environment
 
@@ -402,7 +470,7 @@ unset VECLIB_MAXIMUM_THREADS
 unset NUMEXPR_NUM_THREADS
 ```
 
-Run the formal 45-process campaign:
+Run the 45-process formal-protocol campaign into staging:
 
 ```bash
 DAY6_PYTHON_BIN=.venv/bin/python \
@@ -410,22 +478,200 @@ DAY6_OUTPUT_DIR=artifacts/results/day6/staging/cpu_threads/raw \
 bash scripts/day6_run_cpu_thread_sweep.sh
 ```
 
-The formal runner uses 50 warm-up calls and 300 measured calls for each
+The staging campaign uses 50 warm-up calls and 300 measured calls for each
 backend/configuration pair. It requires a fixed Git commit, a clean worktree,
 unset thread environment variables, and an output directory containing no
 existing JSON files.
 
-Validate and summarize a completed staging campaign:
+After reviewing a completed staging campaign, copy the 45 accepted raw
+records into a new versioned formal archive without modifying or overwriting
+the staging evidence:
+
+```bash
+mkdir -p artifacts/results/day6/formal/ac_v1/raw
+
+cp -n \
+  artifacts/results/day6/staging/cpu_threads/raw/*.json \
+  artifacts/results/day6/formal/ac_v1/raw/
+```
+
+If `formal/ac_v1` already contains records or summaries from an earlier
+accepted campaign, create a new versioned directory such as `ac_v2` instead
+of replacing them.
+
+Validate and summarize the archived formal campaign:
 
 ```bash
 python scripts/day6_summarize_cpu_threads.py \
-  --input-dir artifacts/results/day6/staging/cpu_threads/raw \
-  --output-dir artifacts/results/day6/staging/cpu_threads
+  --input-dir artifacts/results/day6/formal/ac_v1/raw \
+  --output-dir artifacts/results/day6/formal/ac_v1
 ```
 
 The summarizer validates the complete experiment contract before creating
-summary.json and summary.csv. It refuses to overwrite existing summary
-files or modify raw records.
+`summary.json` and `summary.csv`. It reads the archived raw records without
+modifying them and refuses to overwrite existing summary files.
+
+### Day7 graph optimization and profiling
+
+Before collecting formal results, commit the implementation changes, require
+a clean Git worktree, connect AC power, and remove inherited thread-count
+overrides:
+
+```bash
+git status --short
+pmset -g batt
+
+unset OMP_NUM_THREADS
+unset MKL_NUM_THREADS
+unset OPENBLAS_NUM_THREADS
+unset VECLIB_MAXIMUM_THREADS
+unset NUMEXPR_NUM_THREADS
+
+unset ORT_DISABLE_TELEMETRY
+
+export DAY7_PYTHON_BIN=.venv/bin/python
+DAY7_IMPLEMENTATION_COMMIT="$(git rev-parse HEAD)"
+```
+
+The retained Day7 campaigns use the ONNX Runtime default telemetry policy,
+so `ORT_DISABLE_TELEMETRY` is left unset. PyTorch profiling uses an isolated
+import path and does not initialize ONNX Runtime.
+
+Before the formal campaign, smoke-test the graph benchmark, PyTorch profiler,
+and ONNX Runtime profiler in separate ignored directories:
+
+```bash
+DAY7_SMOKE_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+DAY7_SMOKE_OUTPUT="artifacts/results/day7/staging/smoke/${DAY7_SMOKE_ID}"
+DAY7_SMOKE_ARCHIVE="artifacts/results/day7/local_archive/smoke/${DAY7_SMOKE_ID}"
+
+"$DAY7_PYTHON_BIN" scripts/day7_graph_optimization.py \
+  --graph-optimization-level all \
+  --intra-op-threads 1 \
+  --round 1 \
+  --warmup 2 \
+  --iterations 5 \
+  --output-dir "${DAY7_SMOKE_OUTPUT}/graph_optimization/raw" \
+  --notes "Day7 smoke; excluded from formal results"
+
+"$DAY7_PYTHON_BIN" scripts/day7_profile_cpu.py \
+  --backend pytorch_cpu \
+  --intra-op-threads 1 \
+  --warmup 10 \
+  --active-runs 10 \
+  --output-dir "${DAY7_SMOKE_OUTPUT}/profiling/raw" \
+  --trace-dir "${DAY7_SMOKE_ARCHIVE}/traces" \
+  --notes "Day7 smoke; excluded from formal results"
+
+"$DAY7_PYTHON_BIN" scripts/day7_profile_cpu.py \
+  --backend ort_cpu \
+  --graph-optimization-level all \
+  --intra-op-threads 1 \
+  --warmup 10 \
+  --active-runs 10 \
+  --output-dir "${DAY7_SMOKE_OUTPUT}/profiling/raw" \
+  --trace-dir "${DAY7_SMOKE_ARCHIVE}/traces" \
+  --optimized-model-path \
+    "${DAY7_SMOKE_ARCHIVE}/optimized_models/all.onnx" \
+  --notes "Day7 smoke; excluded from formal results"
+```
+
+These smoke runs verify the three execution paths, correctness gates, trace
+generation, and optimized-model export. Their results are local smoke
+evidence and must not be interpreted as formal latency or profiling results.
+
+Use the next unused versioned batch name so existing staging records, traces,
+optimized graphs, and formal results remain unchanged. For example:
+
+```bash
+DAY7_BATCH_ID="ac_v4"
+
+export DAY7_GRAPH_OUTPUT_DIR="artifacts/results/day7/staging/${DAY7_BATCH_ID}/graph_optimization/raw"
+export DAY7_PROFILE_OUTPUT_DIR="artifacts/results/day7/staging/${DAY7_BATCH_ID}/profiling/raw"
+export DAY7_TRACE_DIR="artifacts/results/day7/local_archive/${DAY7_BATCH_ID}/traces"
+export DAY7_OPTIMIZED_MODEL_DIR="artifacts/results/day7/local_archive/${DAY7_BATCH_ID}/optimized_models"
+export DAY7_NOTES="Day7 ${DAY7_BATCH_ID}; AC power; ORT_DISABLE_TELEMETRY=unset (runtime default)"
+
+git status --short
+test "$(git rev-parse HEAD)" = "$DAY7_IMPLEMENTATION_COMMIT"
+```
+
+Confirm that `git status --short` produces no output, the recorded HEAD has
+not changed, and the four destination directories contain no artifacts from
+an earlier campaign.
+
+Run the 24-process graph-optimization benchmark followed by the ten-process
+profiling campaign at the same commit:
+
+```bash
+bash scripts/day7_run_graph_optimization.sh &&
+test "$(git rev-parse HEAD)" = "$DAY7_IMPLEMENTATION_COMMIT" &&
+bash scripts/day7_run_profiling.sh
+
+test "$(git rev-parse HEAD)" = "$DAY7_IMPLEMENTATION_COMMIT"
+```
+
+The graph campaign evaluates four ONNX Runtime graph-optimization levels at
+one and six intra-op threads. Each configuration has three independent
+processes, with 50 warm-up calls and 300 measured calls per process.
+
+The profiling campaign creates two PyTorch profiles and eight ONNX Runtime
+profiles. Each profile uses ten external warm-up calls and ten active runs.
+The campaign produces ten result records, ten traces, and four serialized
+optimized ONNX graphs. Profiling durations include profiler overhead and are
+not formal latency measurements.
+
+After reviewing the completed staging campaign, copy the 34 raw JSON records
+unchanged into a new formal archive:
+
+```bash
+DAY7_FORMAL_DIR="artifacts/results/day7/formal/${DAY7_BATCH_ID}"
+
+mkdir -p artifacts/results/day7/formal
+mkdir "$DAY7_FORMAL_DIR"
+mkdir -p \
+  "$DAY7_FORMAL_DIR/graph_optimization/raw" \
+  "$DAY7_FORMAL_DIR/profiling/raw"
+
+cp -n \
+  "$DAY7_GRAPH_OUTPUT_DIR"/*.json \
+  "$DAY7_FORMAL_DIR/graph_optimization/raw/"
+
+cp -n \
+  "$DAY7_PROFILE_OUTPUT_DIR"/*.json \
+  "$DAY7_FORMAL_DIR/profiling/raw/"
+```
+
+If the selected formal batch directory already exists, choose a new version
+instead of modifying or overwriting the earlier campaign.
+
+Validate the archived graph and profiling matrices and generate the five
+formal summaries:
+
+```bash
+"$DAY7_PYTHON_BIN" scripts/day7_summarize.py \
+  --graph-input-dir "$DAY7_FORMAL_DIR/graph_optimization/raw" \
+  --profile-input-dir "$DAY7_FORMAL_DIR/profiling/raw" \
+  --output-root "$DAY7_FORMAL_DIR"
+```
+
+The summarizer validates the 24 benchmark records, ten profiling records,
+workload identity, source identity, and graph/profile correspondence before
+creating:
+
+```text
+graph_optimization/summary.json
+graph_optimization/summary.csv
+profiling/operator_summary.json
+profiling/operator_summary.csv
+profiling/graph_summary.json
+```
+
+Commit the 34 immutable raw JSON records, five summaries, and corresponding
+analysis documentation. Traces and optimized ONNX binaries remain in the
+ignored local archive; their paths and SHA-256 values are retained in the
+profiling records. Validate and summarize each campaign independently before
+combining process-level results across campaigns.
 
 ## Repository Structure
 
@@ -447,16 +693,25 @@ files or modify raw records.
 │   ├── day6_cpu_threads.py              # Single-process thread experiment
 │   ├── day6_run_cpu_thread_sweep_lite.sh # Lightweight matrix smoke test
 │   ├── day6_run_cpu_thread_sweep.sh      # Formal 45-process thread campaign
-│   └── day6_summarize_cpu_threads.py     # Result validation and JSON/CSV aggregation
+│   ├── day6_summarize_cpu_threads.py     # Result validation and JSON/CSV aggregation
+│   ├── day7_graph_optimization.py       # Single-process ORT graph-level benchmark
+│   ├── day7_profile_cpu.py              # Single-process CPU operator profile
+│   ├── day7_run_graph_optimization.sh   # Formal 24-process latency matrix
+│   ├── day7_run_profiling.sh            # Ten diagnostic profiles and graph exports
+│   └── day7_summarize.py                # Campaign validation and five summaries
 ├── src/
 │   └── inference_bench/
 │       ├── backends.py                  # Backend protocol, adapters, and inference lifecycle
 │       ├── benchmark.py                 # Sampling, statistics, and persistence
 │       ├── device.py                    # Device capability detection and resolution
+│       ├── graph_optimization.py        # Formal graph-level matrix validation
 │       ├── inference.py                 # Reference PyTorch inference
 │       ├── models.py                    # Model construction
 │       ├── onnx_export.py               # ONNX export and graph inspection
 │       ├── ort_backend.py               # ORT CPU session creation and inference adapter
+│       ├── profiling.py                 # Trace and ONNX graph summaries
+│       ├── profiling_campaign.py        # Profile matrix and cross-campaign validation
+│       ├── result_validation.py         # Shared experiment-record validation
 │       ├── thread_sweep.py              # CPU thread-sweep validation and analysis
 │       └── validation.py                # Backend-independent output validation and error metrics
 ├── tests/
@@ -464,10 +719,15 @@ files or modify raw records.
 │   ├── test_benchmark_integration.py
 │   ├── test_benchmark.py
 │   ├── test_device.py
+│   ├── test_graph_optimization.py
 │   ├── test_inference.py
 │   ├── test_models.py
 │   ├── test_onnx_export.py
 │   ├── test_ort_backend.py
+│   ├── test_profiling.py
+│   ├── test_profiling_campaign.py
+│   ├── test_result_validation.py
+│   ├── test_runtime_imports.py
 │   ├── test_thread_sweep.py
 │   └── test_validation.py
 └── pyproject.toml
@@ -499,8 +759,8 @@ The project follows several rules to avoid misleading benchmark conclusions:
 - [x] ONNX Runtime CPU integration and cross-backend correctness validation
 - [x] Unified backend inference lifecycle
 - [x] Reproducible synchronized cross-backend latency benchmark
-- [x] Benchmark methodology refinement and controlled-variable experiments
-- [ ] Graph optimization and operator-level profiling
+- [x] CPU intra-op thread control and sweep
+- [x] CPU graph optimization and operator profiling
 - [ ] Model and workload matrix expansion
 - [ ] Precision, quantization, and deployment-backend optimization
 - [ ] Concurrent serving and end-to-end pipeline benchmarking
@@ -521,7 +781,10 @@ The project follows several rules to avoid misleading benchmark conclusions:
 - Derived serial service rate is not measured concurrent throughput.
 - MPS latency is state-dependent across independent processes, and a fixed
   warm-up count does not guarantee cross-process convergence.
-- Operator-level causes of the observed backend differences have not yet
-  been isolated through profiling.
+- CPU profiling identifies convolution hotspots and layout-related work,
+  while causal scheduling, kernel, and memory explanations remain open.
+- Instrumented durations include profiler overhead and are used for operator
+  attribution; formal latency is measured independently in separate processes
+  with profiling disabled.
 - CoreML Execution Provider, FP16, and INT8 execution have not been evaluated.
 - Model accuracy on a real evaluation dataset has not been measured.
